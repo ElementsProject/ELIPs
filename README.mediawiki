@@ -12,7 +12,7 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 !Type
 !Status
 |- style="background-color: #ffcfcf"
-| [[bip-0001.mediawiki|1]]
+| [[elip-0001.mediawiki|1]]
 |
 | ELIP Purpose and Guidelines
 | Andrew Poelstra
