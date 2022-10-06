@@ -1,0 +1,23 @@
+This repository contains Elements Improvement Proposals, or ELIPs. The ELIP approval process is largely modeled after the Bitcoin BIP process: we will be liberal in accepting ELIPs, provided that they are documented clearly and completely. Approval of an ELIP, including assignment of a number, does not constitute approval on technical grounds by any Elements Project developer or anyone else; it only indicates that the proposal is clearly written and some consensus has been achieved on what it does.
+
+People wishing to submit ELIPs by do so simply by opening a PR to this repo; discussion may happen in the comments. We do not have a mailing list on which to have discussion prior to opening a PR.
+
+Having an ELIP here does not make it a formally accepted standard until its status becomes Final or Active.
+
+{| class="wikitable sortable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Number
+!Layer
+!Title
+!Owner
+!Type
+!Status
+|- style="background-color: #ffcfcf"
+| [[bip-0001.mediawiki|1]]
+|
+| ELIP Purpose and Guidelines
+| Andrew Poelstra
+| Process
+| Active
+|}
+
+<!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->
