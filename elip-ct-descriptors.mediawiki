@@ -50,6 +50,8 @@ Here `DESCRIPTOR` refers to any existing descriptor, e.g. `wsh(...)` or `tr(...)
 * `hash_to_private(<KEY_1>, <KEY_2>, ...)` which indicates that the blinding key is produced by a hash of the sorted list of one or more public keys; or
 * `<KEY>` which is an ordinary (extended) public key which will be used as a blinding key
 
+In both the `hash_to_private` and `<KEY>` expressions, all keys must be compressed; x-only and uncompressed keys are invalid.
+
 We note that even if the descriptor includes private keys, as it will when used for wallet backups, the keys included in the `hash_to_private` combinator will be converted to public keys before sorting and hashing.
 
 We further note that even single-party wallets are likely to use the `hash_to_private()` adaptor rather than directly using `<key>`.
