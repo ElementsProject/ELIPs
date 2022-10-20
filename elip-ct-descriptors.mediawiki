@@ -1,0 +1,96 @@
+<pre>
+  ELIP: ????
+  Layer: Wallet
+  Title: CT Descriptors for Elements
+  Author: Andrew Poelstra <apoelstra@blockstream.com>
+          Tim Ruffing <crypto@timruffing.de>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-10-06
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a new wrapper around existing and future Elements descriptor types, which allows attaching a confidential blinding key to an ordinary output script descriptor. It introduces new syntax to support both existing SLIP77-style confidential keys as well as a new, more flexible style.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Confidential Transactions involve the use of uniformly random "blinding factors" associated to every confidential output.
+These random values are secret, but must be known by the sender (in order to construct a transaction) as well as recipient (in order to recognize the received assets and amounts, and to spend the outputs).
+This means they must be chosen by the sender of a transaction and somehow securely communicated to the recipient.
+
+The way this is done is that confidential addresses contain the public key of an extra "blinding key" pair created by the recipient.
+When blinding, the sender chooses a fresh EC Diffie-Hellman (ECDH) secret key, encodes the corresponding public key in the "nonce" field of the transaction, derives an ECDH secret between the fresh key and the public blinding key, uses the ECDH secret to encrypt the blinding factors for the output, and encodes the encrypted result in the rangeproof.
+The recipient, when recognizing a scriptPubKey corresponding to the ordinary part of her confidential address, uses the blinding key for that address in conjunction with the nonce field of the txout to re-derive the ECDH secret and decrypt the blinding factors.
+
+The purpose of this document is to define a standard way for the recipient's wallet to compute blinding key pairs. There are a number of requirements:
+
+* Confidential addresses, including blinding key, should be derivable from a single descriptor without extra data
+* Wallets should be able to choose the granularity of their blinding keys, so that the revelation of private blinding keys may unblind one, a subset of, or all, its blinded outputs
+* In multiparty settings, each wallet should be able to restrict this granularity
+* It should be possible somehow to do public derivation of CT addresses, given only a descriptor containing (extended) public keys
+
+The current most popular scheme, [https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77], does not satisfy any of these criteria, which limits its usefulness as we move toward a descriptor-centric setting in which multiparty addresses are common.
+
+==Design==
+
+===Overview===
+We propose a new `ct` descriptor which wraps any other descriptor type in the form `ct(<key>, <ordinary descriptor>)`.
+Here `<ordinary descriptor>` refers to any existing descriptor, e.g. `wsh(...)` or `tr(...)` and `<key>` refers to a special construction which must be one of:
+* `slip77(<master secret>)` which indicates that blinding keys for these addresses are derived via SLIP77; or
+* `hash_to_sk(<key1>, <key2>, ...)` which indicates that the blinding key is produced by a sorted hash of the listed key(s), which will be one or more public keys; or
+* `<key>` which is an ordinary (extended) public key which will be used as a blinding key
+
+We note that even if the descriptor includes secret keys, as it will when used for wallet backups, the keys included in the `hash_to_sk` combinator will be public keys.
+
+We further note that even single-party wallets are likely to use the `hash_to_sk()` adaptor rather than directly using `<key>`.
+The reason is that decrypting rangeproofs requires the secret key corresponding to `<key>`, which likely means that decryption happens on a hardware wallet.
+Since decryption is as computationally complex as verifying a rangeproof, we do not expect common wallets to support it directly.
+This form of descriptor may become more common post-Bulletproofs, when we will make decryption much easier.
+
+===Drawbacks===
+
+Our scheme uses derived "public" keys (i.e., EC points) to compute secret blinding keys, because
+* many hardware wallets are incapable of producing rangeproofs, which require significant memory and processing power, but they will not reveal secret keys to the host computer, only public keys;
+* public keys alone cannot be used for multiparty addresses, since we require that each individual participant be able to unblind confidential outputs sent to a multiparty address.
+
+However, this has the following drawbacks:
+* The mismatch between "public" keys being used in a "secret" context may lead to user confusion; though we argue this is no worse than the "secret" chaincode value being included in xpubs used by Bitcoin wallets.
+* Any party who has a copy of an addresses' descriptor is able to see the blinding key and unblind coins sent to that address, or *any* derived address in the case of a non-concrete descriptor.
+
+===Specification===
+
+First, the `ct` descriptor is defined as above: its string serialization is given by `ct(<key>, <ordinary descriptor>)` where `<ordinary descriptor>` is the string serialization of an ordinary descriptor.
+The `scriptPubKey` corresponding to a `ct` descriptor is that corresponding to the embedded `<ordinary descriptor>`. The encoding and semantics of `<key>` are given below.
+
+`<key>` is one of the following three options
+* '''slip77''', encoded as `slip77(<64 hex characters>)`, whose semantics are that the 64 hex characters are interpreted as the 32-byte `master_blinding_key` in SLIP77; the `scriptPubKey` for SLIP77 is computed as normal from the ordinary descriptor.
+For both private and public descriptors, these 32 bytes are encoded identically.
+This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
+* '''hash_to_sk''' takes a list of public or private keys, encoded identically to the keys in the `ordinary descriptor`.
+The semantics are to use a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag `CT-Blinding-Key/1.0` to hash the following data:
+    * the `scriptPubKey` of the output, consensus-encoded including its length prefix; followed by
+    * every public key, in 33-byte compressed encoding, concatenated in lexicographic order
+The output of this hash, when interpreted as an integer (most significant byte first) modulo the group order, is the blinding ''secret'' key.
+* '''bare key''', which simply encodes a single key in the same way as the keys in `ordinary descriptor` are encoded.
+This may be a private or public key; it is used as the blinding key for the address. 
+
+==Security==
+
+==Backwards Compatibility==
+
+Using the `ct(slip77(key), <descriptor>)` construction, any wallet should be able to express its existing confidential addresses using this new scheme.
+
+==Acknowledgements==
+
+We would like to thank Leo Comandini for describing practical requirements by wallet authors, and to Jonas Nick for providing feedback on the cryptographic design.
+
