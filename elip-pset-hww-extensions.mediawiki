@@ -48,8 +48,8 @@ The new global proprietary types specific to Hardware Wallet Extensions are as f
 | <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA = 0x0100</tt>
 | <tt><32 byte asset tag></tt>
 | A 32 byte asset tag which corresponds to this metadata.
-| <compact size uint contractLen><bytes contract><32-byte prevoutTxid><32-bit little endian uint prevoutIndex>
-| The asset metadata including contract and issuance prevout. The parameter <tt>contract</tt> is a JSON document, canonicalized to have its keys sorted lexographically. It is preceded by <tt>contractLen</tt> containing size of the contract in bytes as compact size unsigned integer. Issuance prevout has two parts: a 32-byte <tt>prevoutTxid</tt> (transaction hash) and a 32-bit little endian unsigned integer <tt>prevoutIndex</tt> (zero-based index of the transaction output).
+| <tt><compact size uint contractLen><contract><32-byte prevoutTxid><32-bit little endian uint prevoutIndex></tt>
+| The asset metadata including contract and issuance prevout. The parameter <tt>contract</tt> is a JSON document, canonicalized to have its keys sorted lexographically. It is preceded by <tt>contractLen</tt> containing size of the contract in bytes as a compact size unsigned integer. Issuance prevout has two parts: a 32-byte <tt>prevoutTxid</tt> (transaction hash) and a 32-bit little endian unsigned integer <tt>prevoutIndex</tt> (zero-based index of the transaction output).
 |
 | 0
 | 2
