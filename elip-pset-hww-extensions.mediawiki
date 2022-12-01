@@ -1,0 +1,93 @@
+<pre>
+  ELIP: ????
+  Layer: Applications
+  Title: Hardware Wallet Extensions for Partially Signed Elements Transaction Format
+  Author: Mikhail Tolkachev <contact@miketolkachev.dev>
+  Comments-Summary: No comments yet.
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-12-01
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document describes proprietary extensions to the BIP 370 PSBT Version 2.
+These extensions are for use in Elements Sidechains to hold the information necessary for interaction with hardware wallets and other offline signer applications having no network access.
+
+===Copyright===
+
+This ELIP is licensed under the 2-clause BSD license.
+
+==Specification==
+
+The Hardware Wallet Extensions complement the Partially Signed Elements Transaction (PSET) format, which extends the BIP 370 PSBT format. The changes are new proprietary type fields. This specification inherits a magic sequence, proprietary field prefix, roles, and additional constraints from the main PSET specification (Partially Signed Elements Transaction Format). To avoid duplication of information, basic definitions from the PSET specification are not included in this ELIP. At the time of writing, PSET specification had not been issued as an ELIP and is available at:
+
+https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki
+
+As for all elements fields in PSET, the identifier prefix string for new fields is <tt>pset</tt>. The following subtype identifier as compared to regular PSET fields has two bytes. Subtype of the fields belonging to the hardware wallet extensions always start with <tt>0x0100</tt> base to avoid potential collisions when new fields will be added to the mainstream PSET standard. This base number could be considered as a group identifier. Because subtype is coded as a compact size unsigned integer, it is stored as 3 bytes starting with <tt>0xfd</tt>. For example, identifier of PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA is a sequence of 9 bytes <tt>0xfc0470736574fd0100</tt>.
+
+The fields added for PSET are only allowed when the PSBT version is 2.
+
+The new global proprietary types specific to Hardware Wallet Extensions are as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Asset Metadata
+| <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA = 0x0100</tt>
+| <tt><32 byte asset tag></tt>
+| A 32 byte asset tag which corresponds to this metadata.
+| <compact size uint contractLen><bytes contract><32-byte prevoutTxid><32-bit little endian uint prevoutIndex>
+| The asset metadata including contract and issuance prevout. The parameter <tt>contract</tt> is a JSON document, canonicalized to have its keys sorted lexographically. It is preceded by <tt>contractLen</tt> containing size of the contract in bytes as compact size unsigned integer. Issuance prevout has two parts: a 32-byte <tt>prevoutTxid</tt> (transaction hash) and a 32-bit little endian unsigned integer <tt>prevoutIndex</tt> (zero-based index of the transaction output).
+|
+| 0
+| 2
+|}
+
+===Handling Duplicated Keys===
+
+For all Elements PSBT proprietary fields, PSETs cannot be combined when there are duplicate fields except in the case where those fields are identical.
+
+==Roles==
+
+Using the transaction format involves many different responsibilities. Multiple responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
+This specification relies on definition of roles in the main PSET standard. The following statemends describe specifics of handling Hardware Wallet Extensions for some of the roles for which it's applicable.
+
+===Updater===
+
+Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any of inputs and outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset Updater adds a separate <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> field using asset tag as keydata. It is desirable however not critical for the Updater to verify asset metadata if it is received from an untrusted source. This verification is obligatory for the Signer role.
+
+As a single entity is likely to be both a Creator and Updater, and thus it makes possible to fill-in asset metadata on PSET creation step.
+
+===Signer===
+
+In addition to the Signer behavior defined in BIP 370 PSBT and the main PSET standard, signer should be responsible for properly handling fields belonging to Hardware Wallet Extensions. Within scope of this specification is is assumed that the Signer role is implemented by a hardware wallet or any application running on an airgapped device with similar concept.
+
+Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But is any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and prevout. This field is provided to the Signer for displaying rich asset information to the user. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementations.
+
+===Transaction Extractor===
+
+The Transaction Extractor should normally ignore the fields belonging to Hardware Wallet Extensions as none of these fields affects the produced transaction.
+
+==Test Vectors==
+
+TBD
+
+==Rationale==
+
+<references/>
+
+==Reference implementation==
+
+TBD
