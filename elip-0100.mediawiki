@@ -1,5 +1,5 @@
 <pre>
-  ELIP: ????
+  ELIP: 100
   Layer: Applications
   Title: Hardware Wallet Extensions for Partially Signed Elements Transaction Format
   Author: Mikhail Tolkachev <contact@miketolkachev.dev>
