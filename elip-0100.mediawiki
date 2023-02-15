@@ -27,7 +27,7 @@ The Hardware Wallet Extensions complement the Partially Signed Elements Transact
 
 https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki
 
-To avoid possible collisions with PSET fields from the main specification, a distinct proprietary field prefix <tt>"pset_hww"</tt> is used for the fields belonging to hardware wallet extensions. For example, identifier of PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA is a sequence of 11 bytes <tt>0xfc08707365745f68777700</tt>.
+To avoid possible collisions with PSET fields from the main specification, a distinct proprietary field prefix <tt>"pset_hww"</tt> is used for the fields belonging to Hardware Wallet Extensions. For example, identifier of PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA is a sequence of 11 bytes <tt>0xfc08707365745f68777700</tt>.
 
 The new global proprietary types specific to Hardware Wallet Extensions are as follows:
 
@@ -64,15 +64,15 @@ This specification relies on definition of roles in the main PSET standard. The 
 
 ===Updater===
 
-Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any of inputs and outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset Updater adds a separate <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> field using asset tag as keydata. It is desirable however not critical for the Updater to verify asset metadata if it is received from an untrusted source. This verification is obligatory for the Signer role.
+Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any of inputs and outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset, the Updater adds a separate <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> field using asset tag as keydata. It is desirable however not critical for the Updater to verify asset metadata if it is received from an untrusted source. This verification is obligatory for the Signer role.
 
 As a single entity is likely to be both a Creator and Updater, and thus it makes possible to fill-in asset metadata on PSET creation step.
 
 ===Signer===
 
-In addition to the Signer behavior defined in BIP 370 PSBT and the main PSET standard, signer should be responsible for properly handling fields belonging to Hardware Wallet Extensions. Within scope of this specification is is assumed that the Signer role is implemented by a hardware wallet or any application running on an airgapped device with similar concept.
+In addition to the Signer behavior defined in BIP 370 PSBT and the main PSET standard, signer should be responsible for properly handling fields belonging to Hardware Wallet Extensions. Within the scope of this specification, it is assumed that the Signer role is implemented by a hardware wallet or any application running on an airgapped device with similar concept.
 
-Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But if any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and prevout. This field is provided to the Signer for displaying rich asset information to the user. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementations.
+Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But if any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and issuance transaction's input. This field is provided to the Signer for displaying rich asset information to the user. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementations.
 
 ===Transaction Extractor===
 
@@ -80,7 +80,25 @@ The Transaction Extractor should normally ignore the fields belonging to Hardwar
 
 ==Test Vectors==
 
-TBD
+Valid asset metadata record in PSET composed of the listed below values:
+
+  Source values:
+    Asset tag    : 48f835622f34e8fdc313c90d4a8659aa4afe993e32dcb03ae6ec9ccdc6fcbe18
+    Contract.    : {"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}
+    prevoutTxid  : 3514a07cf4812272c24a898c482f587a51126beef8c9b76a9e30bf41b0cbe53c
+    prevoutIndex : 1
+
+  Resulting asset metadata record:
+    key   : fc08707365745f6877770018befcc6cd9cece63ab0dc323e99fe4aaa59864a0dc913c3fde8342f6235f848
+    value : b47b22656e74697479223a7b22646f6d61696e223a226578616d706c652e636f6d227d2c226973737565725f7075626b6579223a22303334353565653763656463393762306261343335623830303636666339326339363361333463363030333137393831643133353333306334656534336163376133222c226e616d65223a2254657374636f696e222c22707265636973696f6e223a322c227469636b6572223a2254455354222c2276657273696f6e223a307d3514a07cf4812272c24a898c482f587a51126beef8c9b76a9e30bf41b0cbe53c01000000
+
+
+Invalid contracts that should be detected by contract parser:
+
+* Missing ticker: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"version":0}</pre>
+* Missing precision: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","ticker":"TEST","version":0}</pre>
+* Ticker is too long: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST1234567","version":0}</pre>
+* Forbidden whitespace:<pre>{"entity":{"domain":"example.com"}, "issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}</pre>
 
 ==Rationale==
 
