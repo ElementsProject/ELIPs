@@ -15,7 +15,7 @@
 ===Abstract===
 
 This document describes proprietary extensions to the BIP 370 PSBT Version 2.
-These extensions are for use in Elements Sidechains to hold the information necessary for interaction with hardware wallets and other offline signer applications having no network access.
+These extensions are for use in Elements Sidechains to hold the information necessary for interaction with hardware wallets and other offline signer applications having no network access. It is assumed that the lifecycle of the proposed fields is limited to a communication session between the host software and an offline device.
 
 ===Copyright===
 
@@ -64,15 +64,17 @@ This specification relies on definition of roles in the main PSET standard. The 
 
 ===Updater===
 
-Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any of inputs and outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset, the Updater adds a separate <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> field using asset tag as keydata. It is desirable however not critical for the Updater to verify asset metadata if it is received from an untrusted source. This verification is obligatory for the Signer role.
+Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any of inputs and outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset, the Updater adds a separate field using asset tag as keydata. Updater is responsible to make a reasonable number of checks for the asset metadata before it is injected in PSET intended for offline signing. These checks must include verification of metadata source. It is also critical for Updater to perform the best effort test to detect the bogus assets impersonating legitimate assets through visually or semantically similar names and tickers.
 
 As a single entity is likely to be both a Creator and Updater, and thus it makes possible to fill-in asset metadata on PSET creation step.
+
+<tt>WARNING:</tt> PSET containing asset metadata is not supposed to be transmitted to other parties to not encourage them to trust this information. Updater must remove all asset metadata records after completing the signature process involving an offline entity.
 
 ===Signer===
 
 In addition to the Signer behavior defined in BIP 370 PSBT and the main PSET standard, signer should be responsible for properly handling fields belonging to Hardware Wallet Extensions. Within the scope of this specification, it is assumed that the Signer role is implemented by a hardware wallet or any application running on an airgapped device with similar concept.
 
-Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But if any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and issuance transaction's input. This field is provided to the Signer for displaying rich asset information to the user. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementations.
+Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But if any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and issuance transaction's input. This field is provided to the Signer for displaying rich asset information to the user. For security reasons, it is highly recommended that externally provided asset metadata is displayed along with the full asset tag in hexadecimal form, if it is within technical capabilities of the HWW. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementations, except for its internal asset database.
 
 ===Transaction Extractor===
 
