@@ -67,7 +67,7 @@ Our scheme uses derived "public" keys (i.e., EC points) to compute private blind
 
 However, this has the following drawbacks:
 * The mismatch between "public" keys being used in a "secret" context may lead to user confusion; though we argue this is no worse than the "secret" chaincode value being included in xpubs used by Bitcoin wallets.
-* Any party who has a copy of an addresses' descriptor is able to see the blinding key and unblind coins sent to that address, or *any* derived address in the case of a non-concrete descriptor.
+* Any party who has a copy of an addresses' descriptor is able to see the blinding key and unblind coins sent to that address, or *any* derived address in the case of a non-derived descriptor (one containing wildcards).
 
 ===Specification===
 
