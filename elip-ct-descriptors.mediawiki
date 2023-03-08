@@ -78,11 +78,9 @@ The <code>scriptPubKey</code> corresponding to a <code>ct</code> descriptor is t
 * '''slip77''', encoded as <code>slip77(<64-characters hex>)</code>, whose semantics are that the 64 hex characters are interpreted as the 32-byte <code>master_blinding_key</code> in SLIP77; the <code>scriptPubKey</code> for SLIP77 is computed as normal from the ordinary descriptor.
 These 32 bytes are the same for both public and private descriptors; they have no "public" equivalent.
 This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
-* '''hash_to_private''' takes a list of public or private keys, encoded identically to the keys in the <code>ordinary descriptor</code>.
-The semantics are to use a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code> to hash the following data:
-    * the <code>scriptPubKey</code> of the output, consensus-encoded including its length prefix; followed by
-    * every public key, in 33-byte compressed encoding, concatenated in lexicographic order
-The output of this hash, when interpreted as an integer (most significant byte first) modulo the group order, is the blinding ''private'' key. If this hash is zero, the resulting descriptor is invalid.
+* '''hash_to_private''' takes a list of public or private keys, encoded identically to the keys in the <code>ordinary descriptor</code>. The semantics are to use a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code> to hash the following data:
+** the <code>scriptPubKey</code> of the output, consensus-encoded including its length prefix; followed by
+** every public key, in 33-byte compressed encoding, concatenated in lexicographic order The output of this hash, when interpreted as an integer (most significant byte first) modulo the group order, is the blinding ''private'' key. If this hash is zero, the resulting descriptor is invalid.
 * '''bare key''', which simply encodes a single key in the same way as the keys in <code>ordinary descriptor</code> are encoded.
 This may be a private or public key; its public key is used as the blinding key for the address. 
 
