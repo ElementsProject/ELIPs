@@ -45,7 +45,7 @@ The current most popular scheme, [https://github.com/satoshilabs/slips/blob/mast
 
 ===Overview===
 We propose a new <code>ct</code> descriptor which wraps any other descriptor type in the form <code>ct(<BLINDING_KEY>, <DESCRIPTOR>)</code>.
-Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>wsh(...)</code> or <code>tr(...)</code> and <code>BLINDING_KEY</code> is a new expression which must be one of
+Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh(...)</code> or <code>eltr(...)</code> and <code>BLINDING_KEY</code> is a new expression which must be one of
 * <code>slip77(<64-character hex>)</code> which indicates that blinding keys for these addresses are derived via SLIP77; or
 * <code>hash_to_private(<KEY_1>, <KEY_2>, ...)</code> which indicates that the blinding key is produced by a hash of the sorted list of one or more public keys; or
 * <code><KEY></code> which is an ordinary (extended) public key which will be used as a blinding key
