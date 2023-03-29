@@ -47,27 +47,20 @@ The current most popular scheme, [https://github.com/satoshilabs/slips/blob/mast
 We propose a new <code>ct</code> descriptor which wraps any other descriptor type in the form <code>ct(<BLINDING_KEY>, <DESCRIPTOR>)</code>.
 Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh(...)</code> or <code>eltr(...)</code> and <code>BLINDING_KEY</code> is a new expression which must be one of
 * <code>slip77(<64-character hex>)</code> which indicates that blinding keys for these addresses are derived via SLIP77; or
-* <code>hash_to_private(<KEY_1>, <KEY_2>, ...)</code> which indicates that the blinding key is produced by a hash of the sorted list of one or more public keys; or
-* <code><KEY></code> which is an ordinary (extended) public key which will be used as a blinding key
+* <code><KEY></code> which is an ordinary (extended) public key; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
 
-In both the <code>hash_to_private</code> and <code><KEY></code> expressions, all keys must be compressed; x-only and uncompressed keys are invalid.
+In both the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
 
-We note that even if the descriptor includes private keys, as it will when used for wallet backups, the keys included in the <code>hash_to_private</code> combinator will be converted to public keys before sorting and hashing.
-
-We further note that even single-party wallets are likely to use the <code>hash_to_private()</code> adaptor rather than directly using <code><key></code>.
-The reason is that decrypting rangeproofs requires the private key corresponding to <code><key></code>, which likely means that decryption happens on a hardware wallet.
-Since decryption is as computationally complex as verifying a rangeproof, we do not expect common wallets to support it directly.
-This form of descriptor may become more common post-Bulletproofs, when we will make decryption much easier.
+It is permissible, and likely to be common, for a <code><KEY></code> key to be a private key (e.g. an xprv) even if the keys in the actual descriptor are public keys.
+Such a descriptor is termed a '''view descriptor''', and the blinding private key a '''view key'''.
 
 ===Drawbacks===
 
-Our scheme uses derived "public" keys (i.e., EC points) to compute private blinding keys, because
-* Many hardware wallets are incapable of producing rangeproofs, which require significant memory and processing power, but they will not reveal private keys to the host computer, only public keys;
-* Public keys alone cannot be used for multiparty addresses, since we require that each individual participant be able to unblind confidential outputs sent to a multiparty address.
+* Because there is no sensible way to do multiparty unblinding, the blinding key must be a single key whose private half is known to all participants.
+* The use of "view descriptors" which are nominally public but contain secret key data, may lead to user confusion; though we argue it has similar privacy properties to the chaincode value included in xpubs.
+* Any party who has a copy of an addresses' view descriptor is able to see the blinding key and unblind coins sent to that address, or *any* derived address in the case of a descriptor containing wildcards.
 
-However, this has the following drawbacks:
-* The mismatch between "public" keys being used in a "secret" context may lead to user confusion; though we argue this is no worse than the "secret" chaincode value being included in xpubs used by Bitcoin wallets.
-* Any party who has a copy of an addresses' descriptor is able to see the blinding key and unblind coins sent to that address, or *any* derived address in the case of a non-derived descriptor (one containing wildcards).
+The latter point is the intended use of view descriptors, and is listed as a drawback only because it may be surprising.
 
 ===Specification===
 
@@ -76,13 +69,22 @@ The <code>scriptPubKey</code> corresponding to a <code>ct</code> descriptor is t
 
 <code>BLINDING_KEY</code> expressions are one of
 * '''slip77''', encoded as <code>slip77(<64-characters hex>)</code>, whose semantics are that the 64 hex characters are interpreted as the 32-byte <code>master_blinding_key</code> in SLIP77; the <code>scriptPubKey</code> for SLIP77 is computed as normal from the ordinary descriptor.
-These 32 bytes are the same for both public and private descriptors; they have no "public" equivalent.
-This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
-* '''hash_to_private''' takes a list of public or private keys, encoded identically to the keys in the <code>ordinary descriptor</code>. The semantics are to use a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code> to hash the following data:
-** the <code>scriptPubKey</code> of the output, consensus-encoded including its length prefix; followed by
-** every public key, in 33-byte compressed encoding, concatenated in lexicographic order The output of this hash, when interpreted as an integer (most significant byte first) modulo the group order, is the blinding ''private'' key. If this hash is zero, the resulting descriptor is invalid.
-* '''bare key''', which simply encodes a single key in the same way as the keys in <code>ordinary descriptor</code> are encoded.
-This may be a private or public key; its public key is used as the blinding key for the address. 
+** These 32 bytes are the same for both public and private descriptors; they have no "public" equivalent.
+** This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
+* '''bare key''', which simply encodes a single key in the same way as the keys in <code>ordinary descriptor</code> are encoded. The blinding key is derived from the address hy taking the public key ''K'' and tweaking it to form a new key ''K<sub>blind</sub>'' as follows:
+** ''K' = K + H<sub>tag</sub>(K, <code>scriptPubKey</code>)'', where
+** ''H<sub>tag</sub>'' is a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code>;
+** the comma indicates concatenation;
+** and <code>scriptPubKey</code> is the scriptPubKey of the output, consensus-encoded including its length prefix.
+
+Because the scriptPubKey is revealed on the blockchain, its role in the tagged hash is merely to ensure that blinding keys are not reused across multiple outputs, unless they are identical (in which case the reuse amounts to ordinary address reuse).
+Privacy and security are provided by the untweaked key ''K'', which is never revealed on-chain.
+
+In some circumstances, it may make sense for ''K'' to be derived deterministically from the descriptor data, rather than being chosen and specified separately.
+This reduces implementation complexity and the need to store additional keys, at the cost of turning the descriptor unconditionally into a view descriptor.
+In other words, users of this variant will be unable to provide external parties the ability to derive addresses without ''also'' providing them the ability to unblind coins.
+
+In a future ELIP we will specify a standard deterministic key generation scheme for this case.
 
 ==Security==
 
