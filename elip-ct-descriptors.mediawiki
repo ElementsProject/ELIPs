@@ -49,7 +49,7 @@ Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh
 * <code>slip77(<64-character hex>)</code> which indicates that blinding keys for these addresses are derived via SLIP77; or
 * <code><KEY></code> which is an ordinary (extended) public key; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
 
-In both the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
+In the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
 
 It is permissible, and likely to be common, for a <code><KEY></code> key to be a private key (e.g. an xprv) even if the keys in the actual descriptor are public keys.
 Such a descriptor is termed a '''view descriptor''', and the blinding private key a '''view key'''.
@@ -71,7 +71,7 @@ The <code>scriptPubKey</code> corresponding to a <code>ct</code> descriptor is t
 * '''slip77''', encoded as <code>slip77(<64-characters hex>)</code>, whose semantics are that the 64 hex characters are interpreted as the 32-byte <code>master_blinding_key</code> in SLIP77; the <code>scriptPubKey</code> for SLIP77 is computed as normal from the ordinary descriptor.
 ** These 32 bytes are the same for both public and private descriptors; they have no "public" equivalent.
 ** This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
-* '''bare key''', which simply encodes a single key in the same way as the keys in <code>ordinary descriptor</code> are encoded. The blinding key is derived from the address hy taking the public key ''K'' and tweaking it to form a new key ''K<sub>blind</sub>'' as follows:
+* '''bare key''', which simply encodes a single key in the same way as the keys in <code><DESCRIPTOR></code> are encoded. The blinding key is derived from the address by taking the public key ''K'' and tweaking it to form a new key ''K<sub>blind</sub>'' as follows:
 ** ''K' = K + H<sub>tag</sub>(K, <code>scriptPubKey</code>)'', where
 ** ''H<sub>tag</sub>'' is a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code>;
 ** the comma indicates concatenation;
