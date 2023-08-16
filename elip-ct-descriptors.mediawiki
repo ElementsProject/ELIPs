@@ -128,6 +128,10 @@ The following CT descriptors should be parseable and generate the given addresse
 ** SLIP77 master blinding key: <code>b2396b3ee20509cdb64fe24180a14a72dbd671728eaa49bac69d2bdecb5f5a04</code>
 ** Confidential address: <code>el1pq26fndnz8ef6umlz6e2755sm6j5jwxv3tdt2295mr4mx6ux0uf8vcc2tuvwx7k7g9kvhhpux07vqpm3qjj8uwdj94650265ustv0xy8zwzhhycxfhdrm</code>
 ** Unconfidential address: <code>ert1pv997x8r0t0yzmxtms7r8lxqqacsffr78xez6a284d2wg9k8nzr3q3s6527</code>
+* Valid Descriptor 9: <code>ct(02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623,elwpkh(03774eec7a3d550d18e9f89414152025b3b0ad6a342b19481f702d843cff06dfc4))#h5e0p6m9</code>
+** Blinding key: <code>02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623</code>
+** Confidential address: <code>el1qq0r6pegudzm0tzpszelc34qjln4fdxawgwmgnza63wwpzdy6jrm0grmqvvk2ce5ksnxcs9ecgtnryt7xg34060uctupg60d02</code>
+** Unconfidential address: <code>ert1qpasxxt9vv6tgfnvgzuuy9e3j9lryg6ha53x9q0</code>
 
 This one is a "view descriptor" which has a private blinding key but otherwise public keys:
 
@@ -141,6 +145,18 @@ This one is a "view descriptor" which has a private blinding key but otherwise p
 ** Unconfidential address: <code>ert1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyk32h3ur</code>
 
 The non-view descriptor is the same as the view descriptor except that its private blinding key has been replaced with a public key. Notice that the generated addresses are the same in both cases.
+
+This one is a "view descriptor" using ordinary keys rather than extended ones:
+
+* View Descriptor 2: <code>ct(L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q,elwpkh(021a8fb6bd5a653b021b98a2a785725b8ddacfe3687bc043aa7f4d25d3a48d40b5))#stngzuwt</code>
+** Descriptor blinding private key: <code>L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q</code>
+** Confidential address: <code>el1qq265u4g3k3m3qpyxjwpdrtnm293wuxgvs9xzmzcs2ck0mv5rx23w4d7xfsednsmmxrszfe7s9rs0c6cvf3dfyqwa4jj40uffq</code>
+** Unconfidential address: <code>ert1qklrycvkecdanpcpyulgz3c8udvxyck5jkzxddw</code>
+
+* Non-view Descriptor 2: <code>ct(0286fc9a38e765d955e9b0bcc18fa9ae81b0c893e2dd1ef5542a9c73780a086b90,elwpkh(021a8fb6bd5a653b021b98a2a785725b8ddacfe3687bc043aa7f4d25d3a48d40b5))#m5mvyh29</code>
+** Descriptor blinding public key: <code>0286fc9a38e765d955e9b0bcc18fa9ae81b0c893e2dd1ef5542a9c73780a086b90</code>
+** Confidential address: <code>el1qq265u4g3k3m3qpyxjwpdrtnm293wuxgvs9xzmzcs2ck0mv5rx23w4d7xfsednsmmxrszfe7s9rs0c6cvf3dfyqwa4jj40uffq</code>
+** Unconfidential address: <code>ert1qklrycvkecdanpcpyulgz3c8udvxyck5jkzxddw</code>
 
 Finally, the following are invalid test vectors that should not be parseable:
 
