@@ -47,12 +47,14 @@ The current most popular scheme, [https://github.com/satoshilabs/slips/blob/mast
 We propose a new <code>ct</code> descriptor which wraps any other descriptor type in the form <code>ct(<BLINDING_KEY>, <DESCRIPTOR>)</code>.
 Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh(...)</code> or <code>eltr(...)</code> and <code>BLINDING_KEY</code> is a new expression which must be one of
 * <code>slip77(<64-character hex>)</code> which indicates that blinding keys for these addresses are derived via SLIP77; or
-* <code><KEY></code> which is an ordinary (extended) public key; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
+* <code><KEY></code> which is a key expression as described in BIP 380, with the exception that uncompressed and x-only keys are not allowed; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
 
 In the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
 
 It is permissible, and likely to be common, for a <code><KEY></code> key to be a private key (e.g. an xprv) even if the keys in the actual descriptor are public keys.
 Such a descriptor is termed a '''view descriptor''', and the blinding private key a '''view key'''.
+
+Later extensions to this ELIP may specify alternate expressions for `KEY`, for example to allow MuSig-combining keys from multiple participants.
 
 ===Drawbacks===
 
@@ -95,19 +97,19 @@ Using the <code>ct(slip77(<64-byte hex>), <DESCRIPTOR>)</code> construction, any
 The following CT descriptors should be parseable and generate the given addresses:
 
 * Valid Descriptor 1: <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,elpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#y0lg3d5y</code>
-** Blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
+** Descriptor blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
 ** Confidential address: <code>CTEnDa5fqGccV3g3jvp4exSQwRfb6FpGchNBF4ZrAaq8ip8gvLqHCtzw1F7d7U5gYJYXBwymgEMmJjca</code>
 ** Unconfidential address: <code>2dhfebpgPWpeqPdCMMam5F2UHAgx3bbLzAg</code>
 * Valid Descriptor 2: <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#kt4e25qt</code>
-** Blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
+** Descriptor blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
 ** Confidential address: <code>el1qqg5s7xj7upzl7h4q2k2wj4vq63nvaktn0egqu09nqcr6d44p4evaqknpl78t02k2xqgdh9ltmfmpy9ssk7qfvrldr2dttt3ez</code>
 ** Unconfidential address: <code>ert1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyk32h3ur</code>
 * Valid Descriptor 3: <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,elsh(wpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH)))#xg9r4jej</code>
-** Blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
+** Descriptor blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
 ** Confidential address: <code>AzpnREsN1RSi4JB7rAfpywmPsvGxyygmwm9o3iZcP43svg4frVW5DXvGj5yEx6mKcPtAyHgQWVikFRCM</code>
 ** Unconfidential address: <code>XKGUGskfGsNRR1Ww4ytemgBjuszohUaNgv</code>
 * Valid Descriptor 4: <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,eltr(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#c0pjjxyw</code>
-** Blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
+** Descriptor blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL</code>
 ** Confidential address: <code>el1pq0nsl8du3gsuk7r90sgm78259mmv6mt9d4yvj30zr3u052ufs5meuc2tuvwx7k7g9kvhhpux07vqpm3qjj8uwdj94650265ustv0xy8z2pc847zht4k0</code>
 ** Unconfidential address: <code>ert1pv997x8r0t0yzmxtms7r8lxqqacsffr78xez6a284d2wg9k8nzr3q3s6527</code>
 * Valid Descriptor 5: <code>ct(slip77(b2396b3ee20509cdb64fe24180a14a72dbd671728eaa49bac69d2bdecb5f5a04),elpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#hw2glz99</code>
@@ -130,11 +132,11 @@ The following CT descriptors should be parseable and generate the given addresse
 This one is a "view descriptor" which has a private blinding key but otherwise public keys:
 
 * View Descriptor: <code>ct(xprv9s21ZrQH143K28NgQ7bHCF61hy9VzwquBZvpzTwXLsbmQLRJ6iV9k2hUBRt5qzmBaSpeMj5LdcsHaXJvM7iFEivPryRcL8irN7Na9p65UUb,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#j95xktq7</code>
-** Blinding private key: <code>xprv9s21ZrQH143K28NgQ7bHCF61hy9VzwquBZvpzTwXLsbmQLRJ6iV9k2hUBRt5qzmBaSpeMj5LdcsHaXJvM7iFEivPryRcL8irN7Na9p65UUb</code>
+** Descriptor blinding private key: <code>xprv9s21ZrQH143K28NgQ7bHCF61hy9VzwquBZvpzTwXLsbmQLRJ6iV9k2hUBRt5qzmBaSpeMj5LdcsHaXJvM7iFEivPryRcL8irN7Na9p65UUb</code>
 ** Confidential address: <code>el1qq2r0pdvcknjpwev96qu9975alzqs78cvsut5ju82t7tv8d645dgmwknpl78t02k2xqgdh9ltmfmpy9ssk7qfvq78z9wukacu0</code>
 ** Unconfidential address: <code>ert1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyk32h3ur</code>
 * Non-view Descriptor: <code>ct(xpub661MyMwAqRbcEcT9W98HZP2kFzyzQQZkYnrRnrM8uD8kH8kSeFoQHq1x2iihLgC6PXGy5LrjCL66uSNhJ8pwjfx2rMUTLWuRMns2EG9xnjs,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#elmfpmp9</code>
-** Blinding public key: <code>xpub661MyMwAqRbcEcT9W98HZP2kFzyzQQZkYnrRnrM8uD8kH8kSeFoQHq1x2iihLgC6PXGy5LrjCL66uSNhJ8pwjfx2rMUTLWuRMns2EG9xnjs</code>
+** Descriptor blinding public key: <code>xpub661MyMwAqRbcEcT9W98HZP2kFzyzQQZkYnrRnrM8uD8kH8kSeFoQHq1x2iihLgC6PXGy5LrjCL66uSNhJ8pwjfx2rMUTLWuRMns2EG9xnjs</code>
 ** Confidential address: <code>el1qq2r0pdvcknjpwev96qu9975alzqs78cvsut5ju82t7tv8d645dgmwknpl78t02k2xqgdh9ltmfmpy9ssk7qfvq78z9wukacu0</code>
 ** Unconfidential address: <code>ert1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyk32h3ur</code>
 
