@@ -1,5 +1,5 @@
 <pre>
-  ELIP: ????
+  ELIP: 150
   Layer: Wallet
   Title: CT Descriptors for Elements
   Author: Andrew Poelstra <apoelstra@blockstream.com>
