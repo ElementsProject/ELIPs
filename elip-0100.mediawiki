@@ -99,7 +99,7 @@ Invalid contracts that should be detected by contract parser:
 
 * Missing ticker: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"version":0}</pre>
 * Missing precision: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","ticker":"TEST","version":0}</pre>
-* Ticker is too long: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST1234567","version":0}</pre>
+* Ticker is too long: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"1234567890123456789012345","version":0}</pre>
 * Forbidden whitespace:<pre>{"entity":{"domain":"example.com"}, "issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}</pre>
 * Duplicate key (name):<pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","name":"Othercoin","precision":2,"ticker":"TEST","version":0}</pre>
 * Non-sorted keys:<pre>{"name":"Testcoin","entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","precision":2,"ticker":"TEST","version":0}</pre>
