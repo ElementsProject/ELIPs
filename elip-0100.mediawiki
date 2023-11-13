@@ -92,14 +92,14 @@ Valid asset metadata record in PSET composed of the listed below values:
 
   Resulting asset metadata record:
     key   : fc08707365745f6877770018befcc6cd9cece63ab0dc323e99fe4aaa59864a0dc913c3fde8342f6235f848
-    value : b47b22656e74697479223a7b22646f6d61696e223a226578616d706c652e636f6d227d2c226973737565725f7075626b6579223a22303334353565653763656463393762306261343335623830303636666339326339363361333463363030333137393831643133353333306334656534336163376133222c226e616d65223a2254657374636f696e222c22707265636973696f6e223a322c227469636b6572223a2254455354222c2276657273696f6e223a307d3514a07cf4812272c24a898c482f587a51126beef8c9b76a9e30bf41b0cbe53c01000000
+    value : b47b22656e74697479223a7b22646f6d61696e223a226578616d706c652e636f6d227d2c226973737565725f7075626b6579223a22303334353565653763656463393762306261343335623830303636666339326339363361333463363030333137393831643133353333306334656534336163376133222c226e616d65223a2254657374636f696e222c22707265636973696f6e223a322c227469636b6572223a2254455354222c2276657273696f6e223a307d3ce5cbb041bf309e6ab7c9f8ee6b12517a582f488c894ac2722281f47ca0143501000000
 
 
 Invalid contracts that should be detected by contract parser:
 
 * Missing ticker: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"version":0}</pre>
 * Missing precision: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","ticker":"TEST","version":0}</pre>
-* Ticker is too long: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST1234567","version":0}</pre>
+* Ticker is too long: <pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"1234567890123456789012345","version":0}</pre>
 * Forbidden whitespace:<pre>{"entity":{"domain":"example.com"}, "issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}</pre>
 * Duplicate key (name):<pre>{"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","name":"Othercoin","precision":2,"ticker":"TEST","version":0}</pre>
 * Non-sorted keys:<pre>{"name":"Testcoin","entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","precision":2,"ticker":"TEST","version":0}</pre>
