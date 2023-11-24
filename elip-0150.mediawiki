@@ -74,10 +74,11 @@ The <code>scriptPubKey</code> corresponding to a <code>ct</code> descriptor is t
 ** These 32 bytes are the same for both public and private descriptors; they have no "public" equivalent.
 ** This mode is not recommended because there is no way to express this descriptor without revealing the SLIP77 key, which can be used to unblind every single output received by the wallet.
 * '''bare key''', which simply encodes a single key in the same way as the keys in <code><DESCRIPTOR></code> are encoded. The blinding key is derived from the address by taking the public key ''K'' and tweaking it to form a new key ''K<sub>blind</sub>'' as follows:
-** ''K' = K + H<sub>tag</sub>(K, <code>scriptPubKey</code>)'', where
+** ''K<sub>blind</sub> = K + H<sub>tag</sub>(K, <code>scriptPubKey</code>)G'', where
 ** ''H<sub>tag</sub>'' is a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>CT-Blinding-Key/1.0</code>;
 ** the comma indicates concatenation;
-** and <code>scriptPubKey</code> is the scriptPubKey of the output, consensus-encoded including its length prefix.
+** <code>scriptPubKey</code> is the scriptPubKey of the output, consensus-encoded including its length prefix;
+** and ''H<sub>tag</sub>(K, <code>scriptPubKey</code>)G'' is the public key corresponding to the result of the tagged hash interpreted as a scalar or private key.
 
 Because the scriptPubKey is revealed on the blockchain, its role in the tagged hash is merely to ensure that blinding keys are not reused across multiple outputs, unless they are identical (in which case the reuse amounts to ordinary address reuse).
 Privacy and security are provided by the untweaked key ''K'', which is never revealed on-chain.
