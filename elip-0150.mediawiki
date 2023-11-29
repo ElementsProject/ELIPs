@@ -47,7 +47,7 @@ The current most popular scheme, [https://github.com/satoshilabs/slips/blob/mast
 We propose a new <code>ct</code> descriptor which wraps any other descriptor type in the form <code>ct(<BLINDING_KEY>, <DESCRIPTOR>)</code>.
 Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh(...)</code> or <code>eltr(...)</code> and <code>BLINDING_KEY</code> is a new expression which must be one of
 * <code>slip77(<64-character hex>)</code> which indicates that blinding keys for these addresses are derived via SLIP77; or
-* <code><KEY></code> which is a key expression as described in BIP 380, with the exception that uncompressed and x-only keys are not allowed; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
+* <code><KEY></code> which is a key expression as described in BIP 380, with the exception that uncompressed and x-only keys are not allowed, moreover single private keys are encoded hex instead of WIF; the blinding key is derived by a Taproot-style tweak of the key with the data of <code><DESCRIPTOR></code>.
 
 In the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
 
@@ -149,8 +149,8 @@ The non-view descriptor is the same as the view descriptor except that its priva
 
 This one is a "view descriptor" using ordinary keys rather than extended ones:
 
-* View Descriptor 2: <code>ct(L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q,elwpkh(021a8fb6bd5a653b021b98a2a785725b8ddacfe3687bc043aa7f4d25d3a48d40b5))#stngzuwt</code>
-** Descriptor blinding private key: <code>L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q</code>
+* View Descriptor 2: <code>ct(c25deb86fa11e49d651d7eae27c220ef930fbd86ea023eebfa73e54875647963,elwpkh(021a8fb6bd5a653b021b98a2a785725b8ddacfe3687bc043aa7f4d25d3a48d40b5))#c2kx9zll</code>
+** Descriptor blinding private key: <code><c25deb86fa11e49d651d7eae27c220ef930fbd86ea023eebfa73e54875647963/code>
 ** Confidential address: <code>el1qq265u4g3k3m3qpyxjwpdrtnm293wuxgvs9xzmzcs2ck0mv5rx23w4d7xfsednsmmxrszfe7s9rs0c6cvf3dfyqwa4jj40uffq</code>
 ** Unconfidential address: <code>ert1qklrycvkecdanpcpyulgz3c8udvxyck5jkzxddw</code>
 
@@ -179,6 +179,9 @@ Finally, the following are invalid test vectors that should not be parseable:
 * Invalid Descriptor 6
 ** <code>ct(pk(02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623),elwpkh(03774eec7a3d550d18e9f89414152025b3b0ad6a342b19481f702d843cff06dfc4))#nvax6rau</code>
 ** Reason: first argument is a pk descriptor, not a blinding key
+* Invalid Descriptor 7
+** <code>ct(L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q,elwpkh(03774eec7a3d550d18e9f89414152025b3b0ad6a342b19481f702d843cff06dfc4))#gcy6hcfz</code>
+** Reason: single private key is WIF, not hex
 
 ==Acknowledgements==
 
