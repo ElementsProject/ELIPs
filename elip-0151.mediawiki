@@ -1,0 +1,132 @@
+<pre>
+  ELIP: 151
+  Layer: Wallet
+  Title: Deterministic Descriptor Blinding Keys
+  Author: Leonardo Comandini <leonardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
+  Status: Draft
+  Type: Standards Track
+  Created: 2023-11-08
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a standard way to deterministically derive the descriptor blinding key in view descriptors.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+CT descriptors as defined in [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP-150] consist of a descriptor blinding key and an ordinary descriptor.
+
+Descriptor blinding keys can be chosen arbitrarily.
+This however increases the amount of data that the user needs to back up.
+
+Otherwise they can be deterministically derived from a BIP32 seed following [https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77].
+This works for singlesig wallets,
+since the only backup that the user needs is the BIP32 seed (or BIP39 mnemonic).
+However this does not apply to multisig wallets
+which usually consist of multiple xpubs,
+and thus multiple BIP32 seeds from which a descriptor blinding key could be derived.
+SLIP77 also does not work well when there are multiple BIP44 accounts,
+as they will have the same master blinding key.
+
+This document defines a standard way to deterministically derive a descriptor blinding key from an ordinary descriptor.
+
+Deriving the descriptor blinding key from the ordinary descriptor means that multisig participants can avoid needing a key construction and sharing protocol.
+
+==Design==
+
+===Overview===
+We propose a new possible value for the descriptor blinding key
+
+<pre>
+ct(elip151,<DESCRIPTOR>)
+</pre>
+
+Which indicates that descriptor blinding key to be used is a '''view key''' deterministically derived from the ordinary descriptor <code>DESCRIPTOR</code>
+
+===Drawbacks===
+If a wallet uses this standard to derive its descriptor blinding key, anyone knowing the ordinary descriptor will be able to unblind all the corresponding outputs.
+
+Potential adopters of this standard should consider whether this behavior is acceptable.
+
+===Specification===
+The following descriptor:
+
+<pre>
+ct(elip151,<DESCRIPTOR>)
+</pre>
+
+Is equivalent to:
+
+<pre>
+ct(<KEY>,<DESCRIPTOR>)
+</pre>
+
+Where <code>KEY</code> is a ELIP-150 view blinding key derived as follows:
+* If the top-level script expression is <code>combo</code>, fail.
+* If the descriptor does not have wildcards, fail.
+* Future extensions that support multiple descriptors other than multi-path are not supported.
+* If <code>DESCRIPTOR</code> is multi-path, expand to every single descriptor.
+* For each single descriptor:
+** Get the definite descriptor at index 2<sup>31</sup>-1<ref>
+We want to use a <code>scriptPubKey</code> that will not be used in a transaction.
+Otherwise it can be used directly by anyone to derive the descriptor blinding key.
+Wallets use <code>scriptPubKey</code>s starting from index 0,
+thus we choose the last non-hardened index,
+which in practice will never be used in a transaction.
+</ref>
+** Derive the <code>scriptPubKey</code> from the definite descriptor<ref>
+Here we use the <code>scriptPubKey</code> because descriptors have fields that might change without affecting the spending conditions.
+For instance changing the fingerprint of one xpub yields the same <code>scriptPubKey</code>s.
+Using the <code>scriptPubKey</code> allows us to treat such descriptors as equivalent.
+</ref>
+** Prefix the <code>scriptPubKey</code> with <code>OP_INVALIDOPCODE</code>.
+* Concatenate all <code>scriptPubKey</code>s obtained before.
+* Let ''H<sub>tag</sub>'' be a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>Deterministic-View-Key/1.0</code><ref>
+A tagged hash is used to make sure hashes used in this context can't be reinterpreted in another one.
+</ref>
+* The descriptor blinding key is the tagged hash of the concatenated <code>scriptPubKey</code>s, ''<code>KEY</code> = H<sub>tag</sub>(<code>OP_INVALIDOPCODE</code>, <code>scriptPubKey</code>, ...) mod n'', converted to WIF format.
+
+==Test Vectors==
+
+The following ordinary descriptors yield to the given descriptor blinding keys:
+
+* Test vector 1
+** Ordinary descriptor: <code>elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*)#lg37z46y</code>
+** Derived descriptor blinding key: <code>b3baf94d60cf8423cd257283575997a2c00664ced3e8de00f8726703142b1989</code>
+** Derived confidential descriptor: <code>ct(b3baf94d60cf8423cd257283575997a2c00664ced3e8de00f8726703142b1989,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*))#tu4ggqlv</code>
+** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*))#m47kvl05</code>
+** First address: <code>el1qqt33kuqusp3amjam96zxg27wvg2ewvl69h3equtck8lk8349vrxt28w2wqel8nstvtmefmexkn9zg5hhku2u7at99v5ee3rda</code>
+* Test vector 2
+** Ordinary descriptor: <code>elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*)#xshkmp3l</code>
+** Derived descriptor blinding key: <code>de9c5fb624154624146a8aea0489b30f05c720eed6b493b1f3ab63405a11bf37</code>
+** Derived confidential descriptor: <code>ct(de9c5fb624154624146a8aea0489b30f05c720eed6b493b1f3ab63405a11bf37,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#34lpke0s</code>
+** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#y0su9u33</code>
+** First address: <code>el1qqwv7x220qlm8kwjewuwcdl2c88n202jx4ug7fhjdj3xt25my2zq0w8w2wqel8nstvtmefmexkn9zg5hhku2u7rs2fju6fk4nr</code>
+
+The "first" address specified above is the address at index 0 from the first single descriptor (if multipath).
+
+The following descriptors are not supported:
+
+* Invalid Test vector 1
+** Ordinary descriptor: <code>elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8)#5putv8ts</code>
+** Invalid confidential descriptor: <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8))#hf047rv6</code>
+* Invalid Test vector 2
+** Ordinary descriptor: <code>elwpkh(03d902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494)#f9x8raer</code>
+** Invalid confidential descriptor: <code>ct(elip151,elwpkh(03d902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494))#3fcvdxu3</code>
+
+==Footnotes==
+
+<references />
+
+==Acknowledgments==
+
+We would like to thank Jon Griffiths for suggesting the idea of deriving descriptor blinding key from the ordinary descriptor.
