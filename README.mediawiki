@@ -18,6 +18,34 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Andrew Poelstra
 | Process
 | Active
+|- style="background-color: #ffcfcf"
+| [[elip-0002.mediawiki|2]]
+|
+| ELIP Purpose and Guidelines
+| Marco Argentieri
+| Protocol
+| Draft
+|- style="background-color: #ffcfcf"
+| [[elip-0100.mediawiki|100]]
+| Applications
+| Hardware Wallet Extensions for Partially Signed Elements Transaction Format
+| Mikhail Tolkachev
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
+| [[elip-0150.mediawiki|150]]
+| Wallet
+| CT Descriptors for Elements
+| Andrew Poelstra, Tim Ruffing
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
+| [[elip-0151.mediawiki|151]]
+| Wallet
+| Deterministic Descriptor Blinding Keys
+| Leonardo Comandini
+| Standards Track
+| Draft
 |}
 
 <!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->
