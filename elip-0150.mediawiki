@@ -133,6 +133,10 @@ The following CT descriptors should be parseable and generate the given addresse
 ** Blinding key: <code>02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623</code>
 ** Confidential address: <code><lq1qq0r6pegudzm0tzpszelc34qjln4fdxawgwmgnza63wwpzdy6jrm0grmqvvk2ce5ksnxcs9ecgtnryt7xg3406y5ccl0k2glns/code>
 ** Unconfidential address: <code>ex1qpasxxt9vv6tgfnvgzuuy9e3j9lryg6hawrval4</code>
+* Valid Descriptor 10: <code>ct(02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#x6sc2de2</code>
+** Blinding public key: <code>02dce16018bbbb8e36de7b394df5b5166e9adb7498be7d881a85a09aeecf76b623</code>
+** Confidential address: <code>lq1qqwkeuelr466ue5u8e0lz3a27q4yk93qnupry5h3q4h9pjpf8vrrzvknpl78t02k2xqgdh9ltmfmpy9ssk7qfvwt93dvuvssha</code>
+** Unconfidential address: <code>ex1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyktcafre</code>
 
 This one is a "view descriptor" which has a private blinding key but otherwise public keys:
 
