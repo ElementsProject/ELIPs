@@ -88,12 +88,14 @@ Here we use the <code>scriptPubKey</code> because descriptors have fields that m
 For instance changing the fingerprint of one xpub yields the same <code>scriptPubKey</code>s.
 Using the <code>scriptPubKey</code> allows us to treat such descriptors as equivalent.
 </ref>
-** Prefix the <code>scriptPubKey</code> with <code>OP_INVALIDOPCODE</code>.
-* Concatenate all <code>scriptPubKey</code>s obtained before.
+** Encode <code>OP_INVALIDOPCODE</code> following the consensus encoding, i.e. prefixed with its length.
+** Encode the <code>scriptPubKey</code> following the consensus encoding.
+** Concatenate these two values; for instance for scriptpubkey <code>0014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>, the encoding is <code>01ff160014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>.
+* Concatenate all values computed before, obtaining <code>scriptPubKeys</code>.
 * Let ''H<sub>tag</sub>'' be a [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#Design BIP-340 tagged hash] with tag <code>Deterministic-View-Key/1.0</code><ref>
 A tagged hash is used to make sure hashes used in this context can't be reinterpreted in another one.
 </ref>
-* The descriptor blinding key is the tagged hash of the concatenated <code>scriptPubKey</code>s, ''<code>KEY</code> = H<sub>tag</sub>(<code>OP_INVALIDOPCODE</code>, <code>scriptPubKey</code>, ...) mod n'', converted to WIF format.
+* The descriptor blinding key is the tagged hash of the concatenated prefixed <code>scriptPubKey</code>s, ''<code>KEY</code> = H<sub>tag</sub>(<code>scriptPubKeys</code>) mod n'', converted to hex format.
 
 ==Test Vectors==
 
