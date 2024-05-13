@@ -74,7 +74,9 @@ Where <code>KEY</code> is a ELIP-150 view blinding key derived as follows:
 * If the top-level script expression is <code>combo</code>, fail.
 * If the descriptor does not have wildcards, fail.
 * Future extensions that support multiple descriptors other than multi-path are not supported.
-* If <code>DESCRIPTOR</code> is multi-path, expand to every single descriptor.
+* If <code>DESCRIPTOR</code> is multi-path, expand to every single descriptor following BIP-389 rules<ref>
+Multi-path with mismatching length are disallowed, multi-path are derived in parallel.
+</ref>
 * For each single descriptor:
 ** Get the definite descriptor at index 2<sup>31</sup>-1<ref>
 We want to use a <code>scriptPubKey</code> that will not be used in a transaction.
@@ -113,6 +115,18 @@ The following ordinary descriptors yield to the given descriptor blinding keys:
 ** Derived confidential descriptor: <code>ct(de9c5fb624154624146a8aea0489b30f05c720eed6b493b1f3ab63405a11bf37,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#34lpke0s</code>
 ** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#y0su9u33</code>
 ** First address: <code>lq1qqd5w0l3mev79fpaslhx3v978yjzd9a3srsrcukawlh3zu5rjh55nz8w2wqel8nstvtmefmexkn9zg5hhku2u74uy3m6te46yv</code>
+* Test vector 3
+** Ordinary descriptor: <code>elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1>/*))#fmdhs428</code>
+** Derived descriptor blinding key: <code>7fcc1b9a20bbf611d157016192a7d28e353033cfa6a4885b3c48fa5ff9ce1881</code>
+** Derived confidential descriptor: <code>ct(7fcc1b9a20bbf611d157016192a7d28e353033cfa6a4885b3c48fa5ff9ce1881,elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1>/*)))#95nx0s57</code>
+** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1>/*)))#r5qqsf3v</code>
+** First address: <code>lq1qqgf45fhn528h6ermjvlfu38mquw64y8n9pklwww7nzrv280rjd6uat46xe03nxat42fqavhf5edmmhy7yk0e4hvrs4eackgkyjw8su877ktyl57pnjfu</code>
+* Test vector 4
+** Ordinary descriptor: <code>elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<1;2>/*))#cagw3lzd</code>
+** Derived descriptor blinding key: <code>ff0a08050417f0ca95fb6ef7df979ae464739cb79b8c8f4b05408e0ac681a527</code>
+** Derived confidential descriptor: <code>ct(ff0a08050417f0ca95fb6ef7df979ae464739cb79b8c8f4b05408e0ac681a527,elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<1;2>/*)))#5ym2hpzd</code>
+** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<1;2>/*)))#ft7v5az2</code>
+** First address: <code>lq1qq0ccdus59lma7pyqjc0gfcgnc9pwlwmlg23el8zame3evv0mslzes04l80049f6jdn4ml26n7c4aq5gqslfzx263zeww6nsrtu3udnm4nclecdvua9v5</code>
 
 The "first" address specified above is the address at index 0 from the first single descriptor (if multipath).
 
@@ -124,6 +138,9 @@ The following descriptors are not supported:
 * Invalid Test vector 2
 ** Ordinary descriptor: <code>elwpkh(03d902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494)#f9x8raer</code>
 ** Invalid confidential descriptor: <code>ct(elip151,elwpkh(03d902f35f560e0470c63313c7369168d9d7df2d49bf295fd9fb7cb109ccee0494))#3fcvdxu3</code>
+* Invalid Test vector 3
+** Ordinary descriptor: <code>elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1;2>/*))#dvazw5jp</code>
+** Invalid confidential descriptor: <code>ct(elip151,elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1;2>/*)))#gkrp8f5z</code>
 
 ==Footnotes==
 
