@@ -108,13 +108,13 @@ The following ordinary descriptors yield to the given descriptor blinding keys:
 ** Derived descriptor blinding key: <code>b3baf94d60cf8423cd257283575997a2c00664ced3e8de00f8726703142b1989</code>
 ** Derived confidential descriptor: <code>ct(b3baf94d60cf8423cd257283575997a2c00664ced3e8de00f8726703142b1989,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*))#tu4ggqlv</code>
 ** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*))#m47kvl05</code>
-** First address: <code>lq1qqv4dksp0dsvrkcgq58ggj2tfjnhnhuteg5f7khv7hrr259690zstu8w2wqel8nstvtmefmexkn9zg5hhku2u7hxcjrl4uq043</code>
+** First address: <code>lq1qqt33kuqusp3amjam96zxg27wvg2ewvl69h3equtck8lk8349vrxt28w2wqel8nstvtmefmexkn9zg5hhku2u7kr9k068fk338</code>
 * Test vector 2
 ** Ordinary descriptor: <code>elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*)#xshkmp3l</code>
 ** Derived descriptor blinding key: <code>de9c5fb624154624146a8aea0489b30f05c720eed6b493b1f3ab63405a11bf37</code>
 ** Derived confidential descriptor: <code>ct(de9c5fb624154624146a8aea0489b30f05c720eed6b493b1f3ab63405a11bf37,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#34lpke0s</code>
 ** Derived confidential descriptor (equivalent version): <code>ct(elip151,elwpkh(xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/*))#y0su9u33</code>
-** First address: <code>lq1qqd5w0l3mev79fpaslhx3v978yjzd9a3srsrcukawlh3zu5rjh55nz8w2wqel8nstvtmefmexkn9zg5hhku2u74uy3m6te46yv</code>
+** First address: <code>lq1qqwv7x220qlm8kwjewuwcdl2c88n202jx4ug7fhjdj3xt25my2zq0w8w2wqel8nstvtmefmexkn9zg5hhku2u7gc263jye380e</code>
 * Test vector 3
 ** Ordinary descriptor: <code>elwsh(multi(2,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/<0;1>/*,xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8/0/<0;1>/*))#fmdhs428</code>
 ** Derived descriptor blinding key: <code>7fcc1b9a20bbf611d157016192a7d28e353033cfa6a4885b3c48fa5ff9ce1881</code>
