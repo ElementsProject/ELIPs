@@ -5,7 +5,7 @@
   Author: Andrew Poelstra <apoelstra@blockstream.com>
           Tim Ruffing <crypto@timruffing.de>
   Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0150
   Status: Draft
   Type: Standards Track
   Created: 2022-10-06
@@ -190,4 +190,3 @@ Finally, the following are invalid test vectors that should not be parseable:
 ==Acknowledgements==
 
 We would like to thank Leo Comandini for describing practical requirements by wallet authors, and to Jonas Nick for providing feedback on the cryptographic design.
-
