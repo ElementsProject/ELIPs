@@ -45,9 +45,19 @@ The new global proprietary types specific to Hardware Wallet Extensions are as f
 | Asset Metadata
 | <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA = 0x00</tt>
 | <tt><32 byte asset tag></tt>
-| A 32 byte asset tag which corresponds to this metadata.
+| A 32-byte asset tag which corresponds to this metadata.
 | <tt><compact size uint contractLen><contract><32-byte prevoutTxid><32-bit little endian uint prevoutIndex></tt>
 | A compact size unsigned integer representing size of the contract in bytes, <tt>contractLen</tt>, is followed with the <tt>contract</tt> itself as a JSON document, canonicalized to have its keys sorted lexicographically. The input of an asset issuance transaction is represented as <tt>prevoutTxid</tt> - a 32-byte previous transaction hash, and <tt>prevoutIndex</tt> - a 32-bit little endian unsigned integer containing a zero-based index of the previous transaction's output.
+|
+| 0
+| 2
+|-
+| Reissuance Token Definition
+| <tt>PSBT_ELEMENTS_HWW_GLOBAL_REISSUANCE_TOKEN = 0x01</tt>
+| <tt><32 byte token tag></tt>
+| A 32-byte asset tag of a reissuance token.
+| <tt><1 byte boolean issuanceBlinded><32-byte asset tag></tt>
+| A boolean flag <tt>issuanceBlinded</tt> indicates a non-blinded issuance if set to 0x00, and a blinded issuance if set to 0x01. A 32-byte tag that follows it corresponds to an asset to which this reissuance token belongs.
 |
 | 0
 | 2
