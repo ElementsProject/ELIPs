@@ -45,9 +45,19 @@ The new global proprietary types specific to Hardware Wallet Extensions are as f
 | Asset Metadata
 | <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA = 0x00</tt>
 | <tt><32 byte asset tag></tt>
-| A 32 byte asset tag which corresponds to this metadata.
+| A 32-byte asset tag which corresponds to this metadata.
 | <tt><compact size uint contractLen><contract><32-byte prevoutTxid><32-bit little endian uint prevoutIndex></tt>
 | A compact size unsigned integer representing size of the contract in bytes, <tt>contractLen</tt>, is followed with the <tt>contract</tt> itself as a JSON document, canonicalized to have its keys sorted lexicographically. The input of an asset issuance transaction is represented as <tt>prevoutTxid</tt> - a 32-byte previous transaction hash, and <tt>prevoutIndex</tt> - a 32-bit little endian unsigned integer containing a zero-based index of the previous transaction's output.
+|
+| 0
+| 2
+|-
+| Reissuance Token Definition
+| <tt>PSBT_ELEMENTS_HWW_GLOBAL_REISSUANCE_TOKEN = 0x01</tt>
+| <tt><32 byte token tag></tt>
+| A 32-byte asset tag of a reissuance token.
+| <tt><1 byte boolean issuanceBlinded><32-byte asset tag></tt>
+| A boolean flag <tt>issuanceBlinded</tt> indicates a non-blinded issuance if set to 0x00, and a blinded issuance if set to 0x01. A 32-byte tag that follows it corresponds to an asset to which this reissuance token belongs.
 |
 | 0
 | 2
@@ -66,15 +76,19 @@ This specification relies on definition of roles in the main PSET standard. The 
 
 Besides the responsibilities defined in PSET specification, Updater should add asset metadata for each asset referenced in any inputs or issuance outputs. This information is typically queried from the global asset registry, but cached or pre-defined information could be used as well. For each asset, the Updater adds a separate field using asset tag as keydata. The Updater is responsible to make a reasonable number of checks for the asset metadata before it is injected into a PSET intended for offline signing. These checks must include verification of the metadata source. It is also critical for the Updater to perform best effort checking to detect bogus assets impersonating legitimate assets through visually or semantically similar names and tickers.
 
-As a single entity is likely to be both a Creator and Updater, and thus it makes possible to fill-in asset metadata on PSET creation step.
+For the transactions involving asset reissuance tokens, Updater should also include the PSET reissuance token definition field for each of the tokens in use. Such transactions include asset issuance, asset reissuance, reissuance token transfer, and reissuance token burn. If an Updater adds a definition for some reissuance token, it's obligatory to include a metadata field for the asset to which this reissuance token belongs. A PSET with a reissuance token definition missing associated asset metadata is considered invalid. However, it's allowed for an asset metadata field to not have a corresponding reissuance token definition if the reissuance token is unknown or irrelevant to the transaction.
 
-<tt>WARNING:</tt> PSET containing asset metadata is not supposed to be transmitted to other parties, to avoid encouraging them to trust this information. Updater must remove all asset metadata records after completing the signature process involving an offline entity.
+As a single entity is likely to be both a Creator and Updater, and thus it makes possible to fill-in asset metadata and reissuance token definition on PSET creation step.
+
+<tt>WARNING:</tt> PSET containing the fields belonging to Hardware Wallet Extensions is not supposed to be transmitted to other parties, to avoid encouraging them to trust this information. Updater must remove all asset metadata and reissuance token definition records after completing the signature process involving an offline entity.
 
 ===Signer===
 
 In addition to the Signer behavior defined in BIP 370 PSBT and the main PSET standard, the Signer should be responsible for properly handling fields belonging to Hardware Wallet Extensions. Within the scope of this specification, it is assumed that the Signer role is implemented by a hardware wallet or any application running on an airgapped device with similar concept.
 
 Asset metadata fields, <tt>PSBT_ELEMENTS_HWW_GLOBAL_ASSET_METADATA</tt> are fully optional, meaning that the Signer should not assume their presence for all or some of the assets referenced in the transaction. But if any of the asset metadata fields is present, the Signer must verify it by re-computing the asset tag from the given contract and issuance transaction's input. This field is provided to the Signer for displaying rich asset information to the user. For security reasons, it is highly recommended that externally provided asset metadata is displayed along with the full asset tag in hexadecimal form, if it is within technical capabilities of the HWW. This is because the asset metadata may be valid, but contain, e.g., a ticker that mimics another asset. If only the ticker is shown, the users signing the transaction may be tricked into signing an asset that they did not intend. Since a hardware wallet typically does not have access to the network, PSET fields may be the only source of metadata for this category of Signer implementation, except for its internal asset database.
+
+Reissuance token definition fields <tt>PSBT_ELEMENTS_HWW_GLOBAL_REISSUANCE_TOKEN</tt> are supplementary fields for the corresponding asset metadata fields. Their presence in PSET is optional; however, if present, every reissuance token definition must have an associated asset metadata field. The Signer should not assume the presence of a reissuance token definition for every asset metadata field included in PSET. If any of the reissuance token definition fields are present, the Signer must perform the verification of these fields by computing the reissuance token's tag. This is done by using the information stored in the associated asset metadata fields and the value of <tt>issuanceBlinded</tt> flag. Verification is considered successful if the computed tag matches the one included in <tt>keydata</tt>. It is supposed that a Signer uses definitions of reissuance tokens to display textual information on them, like a ticker of the associated asset wrapped with a comment unambiguously denoting this token as a reissuance token.
 
 ===Transaction Extractor===
 
@@ -85,15 +99,20 @@ The Transaction Extractor should normally ignore the fields belonging to Hardwar
 Valid asset metadata record in PSET composed of the listed below values:
 
   Source values:
-    Asset tag    : 48f835622f34e8fdc313c90d4a8659aa4afe993e32dcb03ae6ec9ccdc6fcbe18
-    Contract.    : {"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}
-    prevoutTxid  : 3514a07cf4812272c24a898c482f587a51126beef8c9b76a9e30bf41b0cbe53c
-    prevoutIndex : 1
+    Asset tag        : 48f835622f34e8fdc313c90d4a8659aa4afe993e32dcb03ae6ec9ccdc6fcbe18
+    Reissuance token : d739234098f77172cb22f0de8affd6826d6b9d23d97e04575764786a5b0056e1
+    Contract.        : {"entity":{"domain":"example.com"},"issuer_pubkey":"03455ee7cedc97b0ba435b80066fc92c963a34c600317981d135330c4ee43ac7a3","name":"Testcoin","precision":2,"ticker":"TEST","version":0}
+    prevoutTxid      : 3514a07cf4812272c24a898c482f587a51126beef8c9b76a9e30bf41b0cbe53c
+    prevoutIndex     : 1
+    issuance         : blinded
 
   Resulting asset metadata record:
     key   : fc08707365745f6877770018befcc6cd9cece63ab0dc323e99fe4aaa59864a0dc913c3fde8342f6235f848
     value : b47b22656e74697479223a7b22646f6d61696e223a226578616d706c652e636f6d227d2c226973737565725f7075626b6579223a22303334353565653763656463393762306261343335623830303636666339326339363361333463363030333137393831643133353333306334656534336163376133222c226e616d65223a2254657374636f696e222c22707265636973696f6e223a322c227469636b6572223a2254455354222c2276657273696f6e223a307d3ce5cbb041bf309e6ab7c9f8ee6b12517a582f488c894ac2722281f47ca0143501000000
 
+  Resulting reissuance token definition record:
+    key   : fc08707365745f68777701e156005b6a78645757047ed9239d6b6d82d6ff8adef022cb7271f798402339d7
+    value : 0118befcc6cd9cece63ab0dc323e99fe4aaa59864a0dc913c3fde8342f6235f848
 
 Invalid contracts that should be detected by contract parser:
 
