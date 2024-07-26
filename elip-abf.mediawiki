@@ -1,7 +1,7 @@
 <pre>
   ELIP: XXX
   Layer: Applications
-  Title: Asset Blinding Factors for Partially Signed Elements Transaction Format
+  Title: LiquiDEX extensions for Partially Signed Elements Transaction Format
   Author: Leonardo Comandini <leonardo@blockstream.com>
   Comments-Summary: No comments yet.
   Status: Draft
@@ -14,9 +14,9 @@
 
 ===Abstract===
 
-This document describes an extension to the Partially Signed Elements Transaction (PSET) format, to encode additional data, the asset bliding factors, that might be necessary to collectively blind a transaction.
+This document describes extensions to the Partially Signed Elements Transaction (PSET) format for [https://leocomandini.github.io/2021/06/15/liquidex.html LiquiDEX] swaps.
 
-The asset blinding factors are necessary under specific circumstances, but otherwise these fields should not be set.
+In LiquiDEX swaps, transactions are (partially) blinded collectively, thus some extra information must be shared to make blinding possible, this ELIP describes how to encode the necessary extra data (asset blinding factors) in a PSET.
 
 ===Copyright===
 
@@ -24,7 +24,8 @@ This ELIP is licensed under the 2-clause BSD license.
 
 ==Specification==
 
-This ELIP extends the current PSET specification (available at https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki) with an additional field for input asset blinding factors and an additional field for output blidning factors.
+To avoid possible collisions with PSET fields from the main specification (available at https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki), a distinct proprietary field prefix <tt>"pset_liquidex"</tt> is used for the fields described in this ELIP.
+For example, identifier of PSBT_ELEMENTS_LIQUIDEX_IN_ABF is a sequence of 11 bytes <tt>fc0d707365745f6c6971756964657800</tt>.
 
 This additional per-input proprietary type element is defined:
 
@@ -40,7 +41,7 @@ This additional per-input proprietary type element is defined:
 ! Versions Allowing Inclusion
 |-
 | Asset Blinding Factor
-| <tt>PSBT_ELEMENTS_IN_ASSET_BLINDING_FACTOR = 0x16</tt>
+| <tt>PSBT_ELEMENTS_LIQUIDEX_IN_ABF = 0x00</tt>
 | None
 | No key data
 | <tt><256 bit uint></tt>
@@ -64,7 +65,7 @@ And this additional per-output proprietary type element is defined:
 ! Versions Allowing Inclusion
 |-
 | Asset Blinding Factor
-| <tt>PSBT_ELEMENTS_OUT_ASSET_BLINDING_FACTOR = 0x0b</tt>
+| <tt>PSBT_ELEMENTS_LIQUIDEX_OUT_ABF = 0x00</tt>
 | None
 | No key data
 | <tt><256 bit uint></tt>
@@ -125,7 +126,17 @@ Adding input and output asset blinding factors, allows to convert LiquiDEX v1 pr
 
 However, in most cases, setting the asset blinding factors in a PSET is not necessary, and in such cases these elements should not be set.
 
-==Reference implementation==
+==Test Vectors==
 
-* [https://github.com/ElementsProject/elements/pull/1329 Elements Core]
-* [https://github.com/ElementsProject/rust-elements/pull/201 rust-elements]
+Valid Asset Blinding Factor, which can be set both on inputs or outputs:
+
+  Source values:
+    abf:   3311111111111111111111111111111111111111111111111111111111111111
+
+  Resulting record:
+    key:   fc0d707365745f6c6971756964657800
+    value: 3311111111111111111111111111111111111111111111111111111111111111
+
+==Reference Implementation==
+
+* [https://github.com/ElementsProject/rust-elements/pull/207 rust-elements]
