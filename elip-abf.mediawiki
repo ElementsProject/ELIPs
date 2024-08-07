@@ -1,0 +1,142 @@
+<pre>
+  ELIP: XXX
+  Layer: Applications
+  Title: LiquiDEX extensions for Partially Signed Elements Transaction Format
+  Author: Leonardo Comandini <leonardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-07-17
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document describes extensions to the Partially Signed Elements Transaction (PSET) format for [https://leocomandini.github.io/2021/06/15/liquidex.html LiquiDEX] swaps.
+
+In LiquiDEX swaps, transactions are (partially) blinded collectively, thus some extra information must be shared to make blinding possible, this ELIP describes how to encode the necessary extra data (asset blinding factors) in a PSET.
+
+===Copyright===
+
+This ELIP is licensed under the 2-clause BSD license.
+
+==Specification==
+
+To avoid possible collisions with PSET fields from the main specification (available at https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki), a distinct proprietary field prefix <tt>"pset_liquidex"</tt> is used for the fields described in this ELIP.
+For example, identifier of PSBT_ELEMENTS_LIQUIDEX_IN_ABF is a sequence of 11 bytes <tt>fc0d707365745f6c6971756964657800</tt>.
+
+This additional per-input proprietary type element is defined:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Asset Blinding Factor
+| <tt>PSBT_ELEMENTS_LIQUIDEX_IN_ABF = 0x00</tt>
+| None
+| No key data
+| <tt><256 bit uint></tt>
+| The 32 byte asset blinding factor for the input being spent.
+|
+| 0
+| 2
+|}
+
+And this additional per-output proprietary type element is defined:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Asset Blinding Factor
+| <tt>PSBT_ELEMENTS_LIQUIDEX_OUT_ABF = 0x00</tt>
+| None
+| No key data
+| <tt><256 bit uint></tt>
+| The 32 byte asset blinding factor of this output.
+|
+| 0
+| 2
+|}
+
+==Rationale==
+
+In some protocols where blinding is done by different parties, the asset surjection proof for some output might be created by:
+
+* someone who does not own an input with the same asset, or
+* someone who does not know the asset blinding factor corresponding to the output asset commitment
+
+This, in general, is the case of [https://leocomandini.github.io/2022/10/27/liquidexv1.html LiquiDEX v1], e.g.
+
+* Alice wants to swap x of asset A for y of asset B
+* Alice owns a utxo with x of asset A
+* Alice creates a spending that utxo and receiving an output with y of asset B
+* Alice draws at random the asset and value blinding factors for the output, sets the corresponding asset and value commitment. Sets the nonce commitment. Computes and sets the rangeproof
+* Alice computes the scalar offset contribution of the input and output (combined)
+* Alice computes the value blind proofs for the input and output
+* Alice creates the LiquiDEX proposal using the data obtained above:
+<pre>
+{
+  "version": 1,
+  "tx": "...",
+  "inputs": [{
+    "asset": "aa...",
+    "satoshi": x,
+    "assetblinder": "...",
+    "value_blind_proof": "...",
+  }],
+  "outputs": [{
+    "asset": "bb...",
+    "satoshi": y,
+    "assetblinder": "...",
+    "value_blind_proof": "...",
+  }],
+  "scalars": ["..."],
+}
+</pre>
+* Alice shares the proposal with Bob
+* Bob adds more inputs for the asset B and fees
+* Bob adds more outputs for the asset A, B and fees
+* Bob blinds the transaction, i.e.:
+** draws at random abf and vbf for each new output, apart from the last one for which he uses the new inputs contribution and the scalar offset from the proposal to balance the tx
+** creates rangeproofs for each new output
+** creates surjection proofs for each (blinded) fee output
+** creates surjection proofs for each A output, note that in general the input asset blinding factor is needed.
+** creates surjection proofs for each B output, including the one from Alice, which requires the output blinding factor. Note that Alice could not have created the surjection proof since she did not know any B input when she created the tx
+
+This example shows why sharing the asset blinding factors for input and outputs is necessary under some specific circumstances.
+
+Adding input and output asset blinding factors, allows to convert LiquiDEX v1 proposal in PSETs, so that wallets can only deal with PSETs.
+
+However, in most cases, setting the asset blinding factors in a PSET is not necessary, and in such cases these elements should not be set.
+
+==Test Vectors==
+
+Valid Asset Blinding Factor, which can be set both on inputs or outputs:
+
+  Source values:
+    abf:   3311111111111111111111111111111111111111111111111111111111111111
+
+  Resulting record:
+    key:   fc0d707365745f6c6971756964657800
+    value: 3311111111111111111111111111111111111111111111111111111111111111
+
+==Reference Implementation==
+
+* [https://github.com/ElementsProject/rust-elements/pull/207 rust-elements]
