@@ -1,0 +1,100 @@
+<pre>
+  ELIP: 101
+  Layer: Applications
+  Title: Genesis Blockhash for Partially Signed Elements Transaction Format
+  Author: Jon Griffiths <jon_p_griffiths@yahoo.com>
+  Comments-Summary: No comments yet.
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-02-04
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document describes a new, conditionally optional global field for the Partially Signed Elements Transaction (PSET) format, which contains the genesis blockhash of the chain the transaction is intended to be signed for.
+
+A genesis blockhash uniquely identifies an instance of an Elements chain. Elements Segwit v1 taproot support takes advantage of this fact by including the genesis blockhash in the data used to sign a transaction. This ensures that signatures are different between chain instances and can be used to ensure that the expectations of transaction creators and signers are aligned.
+
+Code/hardware that performs signing may operate either with or without the context of the current chain. For example, Elements nodes are configured to run on a specific chain and thus when signing always know the chain they are signing for. In contrast, libraries or utilities that provide PSET signing may run in multiple contexts, and may not have a global state representing the current chain. In this latter case, the chain must be provided to the signer in the form of the new field this ELIP proposes.
+
+In the following text, "context available" refers to code having an understanding of the current chain as in the Elements example above.
+
+While this field must be included if the PSET contains taproot inputs, it may optionally be included when no taproot inputs are present. This allows signers with context available to reject signing transactions that are not intended for their configured chain.
+
+===Copyright===
+
+This ELIP is licensed under the 2-clause BSD license.
+
+==Specification==
+
+The Partially Signed Elements Transaction (PSET) format extends the BIP 370 PSBT format and is defined at https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki. This document extends the PSET format directly, and as such the document above should be updated if and when this ELIP is approved.
+
+The new global field is defined as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Genesis Blockhash
+| <tt>PSBT_ELEMENTS_GLOBAL_GENESIS_HASH = 0x02</tt>
+| None
+| No key data
+| <tt><hash></tt>
+| The 32 byte genesis hash of the Elements chain this transaction is for.
+| 2(*)
+| -
+| 2
+|}
+
+(*) Note that required inclusion is conditional as described below.
+
+===Handling Duplicated Keys===
+
+Duplicate or repeated values of the new field are not allowed. When merging multiple PSETs, if any input PSET has this field, the resulting PSET must also. If more than one value for this field is present or would result, merging must fail. These are the standard rules for existing fields and should not require special handling.
+
+Logically, a PSET must either explicitly belong to a given chain (the field is present), or not explicitly belong to any chain (the field is absent).
+
+==Roles==
+
+For all roles, when a PSET is received and the field is present, it should be validated if context is available. If the genesis hash does not match the current context, the operation must fail.
+
+The field must not ever be removed, even after finalization, since it can be used to prevent further processing or broadcast on the wrong chain.
+
+Otherwise, the PSET Roles are updated as follows:
+
+===Creator/Updater===
+
+May add the field to any PSET they process, if context is available.
+
+If taproot inputs are added, they must add the field.
+
+If the PSET already contains taproot inputs and the field is not present, an updater should add it if context is available.
+
+===Signer===
+
+If present, the field must be validated if context is available.
+
+If not present, signers may sign taproot inputs with their current chain if context is available.
+
+If any inputs of any type are signed the field should be added, and must be added if taproot inputs are present (whether signed or not).
+
+
+<references/>
+
+==Backwards Compatibility==
+
+The new field is backwards compatible due to the ignore/round trip behavior for new fields inherited from the PSBT specification. Conforming implementations are expected to carry through the new field and its contents even if they do not support this ELIP.
+
+==Reference implementation==
+
+Implemented in libwally-core v1.4.0: https://github.com/ElementsProject/libwally-core/releases/tag/release_1.4.0

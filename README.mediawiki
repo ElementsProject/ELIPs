@@ -33,6 +33,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Standards Track
 | Draft
 |- style="background-color: #ffcfcf"
+| [[elip-0101.mediawiki|101]]
+| Applications
+| Genesis Blockhash for Partially Signed Elements Transaction Format
+| Jon Griffiths
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
 | [[elip-0102.mediawiki|102]]
 | Applications
 | LiquiDEX extensions for Partially Signed Elements Transaction Format
