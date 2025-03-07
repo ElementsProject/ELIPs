@@ -52,7 +52,7 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Discounted fees for Confidential Transactions
 | Byron Hambly
 | Standards Track
-| Draft
+| Active
 |}
 
 <!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->
