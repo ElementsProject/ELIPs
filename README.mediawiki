@@ -52,6 +52,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Discounted fees for Confidential Transactions
 | Byron Hambly
 | Standards Track
+| Active
+|- style="background-color: #ffcfcf"
+| [[elip-0201.mediawiki|201]]
+| Wallet
+| Dust limit reduction for Confidential Transactions
+| Kilian Rausch
+| Standards Track
 | Draft
 |}
 
