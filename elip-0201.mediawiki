@@ -1,8 +1,8 @@
 <pre>
   ELIP: 201
   Layer: Wallets
-  Title: Dust limit reduction for Confidential Transactions ("DustCT")
-  Author: Kilian Rausch <k@bol.tz>
+  Title: Reduce Elements default dust relay feerate to match min relay feerate
+  Author: Kilian Rausch <k@bol.tz> and Byron Hambly <bhambly@blockstream.com>
   Comments-Summary: No comments yet.
   Comments-URI: TBD
   Status: Draft
@@ -15,7 +15,7 @@
 
 ===Abstract===
 
-This document proposes to reduce the wallet-side enforced dust limit for Confidential Transactions on the Liquid Network.
+This document proposes to reduce the default dust relay feerate in Elements to match the default minimum relay feerate.
 
 ===Copyright===
 
@@ -23,13 +23,29 @@ This document is licensed under the 3-clause BSD license.
 
 ===Motivation===
 
-[https://github.com/ElementsProject/elements Elements], [https://github.com/Blockstream/gdk GDK] and [https://github.com/Blockstream/lwk LWK] ("Liquid reference wallets") currently enforce a wallet-side 546 sats dust limit, originally inherited from Bitcoin Core<ref>[https://github.com/bitcoin/bitcoin/blob/ee68b05f3d639b28b9d23b48324bc5f20ccfe49c/src/policy/policy.cpp#L36 Bitcoin Core Policy]</ref>. With ELIP 200<ref>[https://github.com/ElementsProject/ELIPs/blob/main/elip-0200.mediawiki ELIP 200]</ref> live on Liquid mainnet, network fees for Confidential Transactions dropped by ~10x, with <20 sats total for a single input, single output Confidential Transaction. The default dust limit of Liquid's reference wallet libraries should be lowered to reflect this and allow for micropayment use cases on Liquid.
+Elements has inherited the default values for the minimum relay feerate and dust relay feerate from the upstream Bitcoin Core software fork. The minimum relay feerate was reduced to 100 sats/kvB <ref>[https://github.com/ElementsProject/elements/pull/684/files#diff-d3c243938494b10666b44404a27af7d84b44a72b85a27431e0c89e181462ca6eR58 ElementsProject/elements#684]</ref>, while the inherited dust relay feerate remains at 3000 sats/kvB.
+
+Since Elements has confidential transaction amounts, it is already possible for wallets to create "dust" outputs. We propose that the default dust relay feerate should match the minimum relay feerate for consistency, and allow a default Elements wallet to create smaller value outputs without manually setting the dustrelayfee.
 
 ==Design==
 
-The dust limit for Confidential Transactions is not enforced at the network level<ref>[https://github.com/ElementsProject/elements/blob/master/src/policy/policy.cpp#L59 Elements Policy]</ref>, as transaction amounts are blinded. The GDK and LWK wallet libraries already offer settings to manually change the dust limit to a different arbitrary value. This proposal is about changing the default of this value for above-mentioned reference wallets from currently 546 sats to e.g. 55 (546/10) or 21 sats (a very prominent amount for tipping) and establishing a new lower default dust value for the Liquid ecosystem.
+The "dust threshold" for output types is node policy and unrelated to consensus of the network.
 
-We broadcasted a transaction on Liquid mainnet with a 100 sat output<ref>[https://blockstream.info/liquid/tx/a07ec2484d1accc71b77f1c617acef3a425f2ce2f443a9318ba7c65f6d23460a#blinded=1636,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,bef01bda6de0ee4818387d1ff39c3f267c9de525abf0efd8dc26c38bc441ff70,2d2552774b5285d9a2bf56e71dfc536cc20021ecef819dd3568afa3fad1a4fff,1158,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,a93e191f28a87834c77f3dae3f3a37b6941b407e6c9d22b4c460bc5dde28b467,07a36ff8592b183d57fa805a1a5830e6cc1b5f72a92278383e53ad971f22f9a3,1002,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,78fbd2f963eee0c566c1c1b807c8e61beffe4610325870d88ffc119e18ea0ffe,1e6215d088626285e8414d0fd82a91c4db94769c0df2fb0d02af18703529a6c5,958,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,fb7639fdb84cb70f75f0fa752c9159c67cfff6171f6e9660e96a236523e15f0e,491ca3b4eece31d10af59b5dac247ef85fdeb8a5659c36eaa6ca9942b561d17c,958,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,993702f196126e9bf7b235ea42dfdffaf5b7f9d370e2c7a7f18ab2bd21196f7d,d6a86706f5db1ffc3a0b9d7ce75e967f0dd1c30caaad9be325bac15a4a6553b5,915,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,495784c4e99f28e4d1e9ab313d103f7e385bfabf25559e406d5e4e1a48c0053e,e2e8b25bfdb2d7f422ee27bacfbb9feea43717c91eb2bb7e0ee6c77b6b7a108a,100,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,747b886877fc8ccbeab47737fb9b1578b0b710bac2b0f3831a4a1c94f1e559ce,9a1d9ba014945cf25184b56939e56b11bf5f71b9d1100a36978fd12b92cd69fe,6240,6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d,d719a44bec91cdfbbe3dca053834e388b375f9e384a045920d19ba1761f4e8f8,b64515e47f00049a516f37d425418ab75b73ad36c9f50dfdd2a3b37537901f84 Transaction with 100 sat output]</ref> as tangible proof that sub-546 sats transaction are relayed and processed without issues by the Liquid mainnet network.
+The default dustrelayfee rate is 3 sats/vb (3000 sats/kvb) <ref>[https://github.com/ElementsProject/elements/blob/master/src/policy/policy.h#L58 DUST_RELAY_TX_FEE]</ref>.
+
+In testing, a confidential WPKH output has a base size of 98 bytes. The function GetDustThreshold then adds a further 67.75 witness bytes, giving a floored total of 165 bytes. At the default dustrelayfee of 3 sat/vb this gives a dust threshold of 495 sats.
+
+By reducing the dustrelayfee to 0.1 sats/vb (100 sats/kvb), Elements RPCs can create confidential WPKH outputs with amounts as low as 17 sats ( 165 vb * 0.1 sats/vb rounded up to the next integer).
+
+There is an IsDust check in IsStandardTx <ref>[https://github.com/ElementsProject/elements/blob/master/src/policy/policy.cpp#L149 IsStandardTx policy check]</ref>, but this can only be checked for unblinded transactions.
+
+Reducing the default dust relay fee to match the minimum relay fee results in a more consistent order of magnitude expectation for output values, and allows a default Elements wallet to create smaller value outputs without setting dustrelayfee configuration manually.
+
+As already noted, this policy can be already be reduced by individual nodes, and other Liquid wallets can trivially create blinded outputs below any dust threshold.
+
+==Reference Implementation==
+
+https://github.com/ElementsProject/elements/pull/1433
 
 ==References==
 
