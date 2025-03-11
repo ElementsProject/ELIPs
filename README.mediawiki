@@ -60,6 +60,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Byron Hambly
 | Standards Track
 | Active
+|- style="background-color: #ffcfcf"
+| [[elip-0201.mediawiki|201]]
+| Wallet
+| Reduce Elements default dust relay feerate to match min relay feerate
+| Kilian Rausch
+| Standards Track
+| Draft
 |}
 
 <!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->

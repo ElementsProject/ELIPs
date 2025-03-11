@@ -1,0 +1,52 @@
+<pre>
+  ELIP: 201
+  Layer: Wallets
+  Title: Reduce Elements default dust relay feerate to match min relay feerate
+  Author: Kilian Rausch <k@bol.tz> and Byron Hambly <bhambly@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-03-07
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes to reduce the default dust relay feerate in Elements to match the default minimum relay feerate.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Elements has inherited the default values for the minimum relay feerate and dust relay feerate from the upstream Bitcoin Core software fork. The minimum relay feerate was reduced to 100 sats/kvB <ref>[https://github.com/ElementsProject/elements/pull/684/files#diff-d3c243938494b10666b44404a27af7d84b44a72b85a27431e0c89e181462ca6eR58 ElementsProject/elements#684]</ref>, while the inherited dust relay feerate remains at 3000 sats/kvB.
+
+Since Elements has confidential transaction amounts, it is already possible for wallets to create "dust" outputs. We propose that the default dust relay feerate should match the minimum relay feerate for consistency, and allow a default Elements wallet to create smaller value outputs without manually setting the dustrelayfee.
+
+==Design==
+
+The "dust threshold" for output types is node policy and unrelated to consensus of the network.
+
+The default dustrelayfee rate is 3 sats/vb (3000 sats/kvb) <ref>[https://github.com/ElementsProject/elements/blob/master/src/policy/policy.h#L58 DUST_RELAY_TX_FEE]</ref>.
+
+In testing, a confidential WPKH output has a base size of 98 bytes. The function GetDustThreshold then adds a further 67.75 witness bytes, giving a floored total of 165 bytes. At the default dustrelayfee of 3 sat/vb this gives a dust threshold of 495 sats.
+
+By reducing the dustrelayfee to 0.1 sats/vb (100 sats/kvb), Elements RPCs can create confidential WPKH outputs with amounts as low as 17 sats ( 165 vb * 0.1 sats/vb rounded up to the next integer).
+
+There is an IsDust check in IsStandardTx <ref>[https://github.com/ElementsProject/elements/blob/master/src/policy/policy.cpp#L149 IsStandardTx policy check]</ref>, but this can only be checked for unblinded transactions.
+
+Reducing the default dust relay fee to match the minimum relay fee results in a more consistent order of magnitude expectation for output values, and allows a default Elements wallet to create smaller value outputs without setting dustrelayfee configuration manually.
+
+As already noted, this policy can be already be reduced by individual nodes, and other Liquid wallets can trivially create blinded outputs below any dust threshold.
+
+==Reference Implementation==
+
+https://github.com/ElementsProject/elements/pull/1433
+
+==References==
+
+<references />
