@@ -1,5 +1,5 @@
 <pre>
-  ELIP: XXX
+  ELIP: 102
   Layer: Applications
   Title: LiquiDEX extensions for Partially Signed Elements Transaction Format
   Author: Leonardo Comandini <leonardo@blockstream.com>
