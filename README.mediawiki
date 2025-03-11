@@ -56,7 +56,7 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 |- style="background-color: #ffcfcf"
 | [[elip-0201.mediawiki|201]]
 | Wallet
-| Dust limit reduction for Confidential Transactions
+| Reduce Elements default dust relay feerate to match min relay feerate
 | Kilian Rausch
 | Standards Track
 | Draft
