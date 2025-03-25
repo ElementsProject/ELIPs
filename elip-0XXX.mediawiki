@@ -1,0 +1,134 @@
+<pre>
+  ELIP: XXX
+  Layer: Wallets
+  Title: Account and Asset Identification on the Liquid Network
+  Author: [Riccardo Casatta] <riccardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-03-07
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document defines the account ID and asset ID specifications for the Liquid Network to enable interoperability with WalletConnect and other chain-agnostic protocols.
+These specifications are based on the Chain Agnostic Improvement Proposals (CAIPs), specifically [CAIP-10](https://chainagnostic.org/CAIPs/caip-10) for account identification and [CAIP-19](https://chainagnostic.org/CAIPs/caip-19) for asset identification, 
+adapted to the UTXO model of the Liquid Network.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+WalletConnect has become a standard protocol for wallet-to-dapp communication in the blockchain ecosystem. 
+However, its implementation on UTXO-based blockchains like the Liquid Network presents unique challenges due to the fundamental differences between UTXO and account-based models. 
+
+Currently, there is no standardized method for identifying accounts and assets on the Liquid Network within the WalletConnect ecosystem.
+This lack of standardization impedes the development of interoperable applications and hinders the integration of Liquid Network with cross-chain protocols.
+
+This ELIP aims to establish a standardized approach for representing Liquid Network accounts and assets in a way that is compatible with existing chain-agnostic standards, 
+thereby enabling integration with WalletConnect and other cross-chain protocols.
+
+==Specification==
+
+===Account ID Specification===
+
+Following CAIP-10, the account ID for Liquid Network is defined as:
+
+<pre>
+account_id:        chain_id + ":" + account_address
+chain_id:          "bip122:" + reference
+reference:         First 32 characters of the network's genesis block hash
+account_address:   Hexadecimal string deterministically derived from a CT Descriptor ([ELIP-150](https://github.com/ElementsProject/ELIPs/blob/master/ELIPs/elip-0150.mediawiki))
+</pre>
+
+Where:
+* For Liquid Network: chain_id = "bip122:1466275836220db2944ca059a3a10ef6"
+* For Liquid Testnet: chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"
+
+The account_address in the UTXO model isn't a proper address where someone can send funds to. 
+This is done on purpose to avoid address reuse and leaking information about the wallet.
+
+The account_address is derived from the CT descriptor and the network with the following steps:
+
+1. If the descriptor has no wildcard, fail. 
+2. If the descriptor is multipath (it contains "<0;1>"), take the external chain (0).
+3. Deriving a blinded address from the given CT descriptor and network at the fixed index (2^31 - 1). By doing so slightly different descriptors that represent the same wallet (eg. using or not using the fingerprint) will create the same identifier.
+4. Hashing the address string with SHA256, so that is not possible to send funds to the account_address.
+5. Taking the first 16 bytes (32 hex characters) of the hash, so that is not too long but it is still impossible to create collisions.
+6. Formatting with hyphens every 4 characters (e.g. "1234-5678-90ab-cdef-1234-5678-90ab-cdef") This should improve human readability and comparability.
+
+Example Account IDs:
+* Liquid : "bip122:1466275836220db2944ca059a3a10ef6:d41f-fe12-4da1-28d5-9449-5e49-d3f4-42ca"
+* Liquid Testnet: "bip122:a771da8e52ee6ad581ed1e9a99825e5b:2cb9-6c92-93b8-1f96-0c3f-afc7-9504-afdd"
+
+Test vectors are available in the [Test Vectors](#test-vectors) section.
+
+===Asset ID Specification===
+
+Following CAIP-19, the asset ID for Liquid Network is defined as:
+
+<pre>
+asset_id:          chain_id + "/" + asset_namespace + ":" + asset_reference
+chain_id:          "bip122:" + reference
+reference:         First 32 characters of the network's genesis block hash
+asset_namespace:   "elipXXX"
+asset_reference:   Asset's hex identifier on the Liquid Network
+</pre>
+
+Where:
+* For Liquid Network: chain_id = "bip122:1466275836220db2944ca059a3a10ef6"
+* For Liquid Testnet: chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"
+* asset_namespace = "elipXXX" (defined in this ELIP)
+* asset_reference = hexadecimal representation of the Liquid asset ID
+
+Example Asset IDs:
+* L-BTC (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+* Tether USDt (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* tL-BTC (Liquid Testnet): "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elipXXX:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+
+Note: This specification replaces the previously suggested [slip44](https://github.com/satoshilabs/slips/blob/master/slip-0044.md) namespace for Liquid assets, as the slip44 namespace can represent only the policy asset (Liquid BTC) and cannot represent the variety of assets on the Liquid Network.
+
+===Cross-Chain Asset Recognition===
+
+The asset ID specification allows for recognition of the same asset across different blockchains. For example:
+* Tether USDt on Liquid: "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* Tether USDt on Ethereum: "eip155:1/erc20:0xdac17f958d2ee523a2206206994597c13d831ec7"
+
+Applications can use these identifiers to recognize that these assets represent the same underlying value, facilitating cross-chain operations.
+
+
+==Test Vectors==
+
+The following are test vectors for the account identifier.
+
+    network:         Liquid
+    descriptor:      ct(slip77(9c8e4f05c7711a98c838be228bcb84924d4570ca53f35fa1c793e58841d47023),elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/<0;1>/*))#y8jljyxl
+    account_address: d41f-fe12-4da1-28d5-9449-5e49-d3f4-42ca
+    account_id:      bip122:1466275836220db2944ca059a3a10ef6:d41f-fe12-4da1-28d5-9449-5e49-d3f4-42ca
+     
+    network:         Liquid Testnet
+    descriptor:      ct(slip77(9c8e4f05c7711a98c838be228bcb84924d4570ca53f35fa1c793e58841d47023),elwpkh([73c5da0a/84h/1h/0h]tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/<0;1>/*))#xte2lx9x
+    account_address: 2cb9-6c92-93b8-1f96-0c3f-afc7-9504-afdd
+    account_id:      bip122:a771da8e52ee6ad581ed1e9a99825e5b:2cb9-6c92-93b8-1f96-0c3f-afc7-9504-afdd
+
+    network:         Regtest
+    descriptor:      ct(slip77(9c8e4f05c7711a98c838be228bcb84924d4570ca53f35fa1c793e58841d47023),elwpkh([73c5da0a/84h/1h/0h]tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/<0;1>/*))#xte2lx9x
+    account_address: 5f42-ad62-d515-96f8-ed85-5d5f-0e86-467e
+    account_id:      bip122:cc2641af46f536fba45aab6016f63e12:5f42-ad62-d515-96f8-ed85-5d5f-0e86-467e
+
+
+==Backwards Compatibility==
+
+This proposal introduces new standards and does not affect existing functionality. Wallets and applications that do not support these standards can continue to operate as before.
+
+==Reference Implementation==
+
+A reference implementation of the account_address computation is available in [LWK](https://github.com/Blockstream/lwk/blob/4ec85076f549d17cc920e3b7763516345daea3ad/lwk_wollet/src/descriptor.rs#L164)
+
+
