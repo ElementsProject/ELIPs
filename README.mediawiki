@@ -73,7 +73,7 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Reduce Elements default dust relay feerate to match min relay feerate
 | Kilian Rausch
 | Standards Track
-| Draft
+| Active
 |}
 
 <!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->
