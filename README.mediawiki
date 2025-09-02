@@ -74,6 +74,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Kilian Rausch
 | Standards Track
 | Active
+|- style="background-color: #ffcfcf"
+| [[elip-0202.mediawiki|202]]
+| Applications
+| Issued asset fees
+| Tom Trevethan
+| Standards Track
+| Draft
 |}
 
 <!-- IMPORTANT!  See the instructions at the top of this page, do NOT JUST add BIPs here! -->
