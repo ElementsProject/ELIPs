@@ -1,0 +1,226 @@
+<pre>
+  ELIP: 202
+  Layer: Applications
+  Title: Issued Asset Fees
+  Author: Tom Trevethan <ttrevethan@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0202
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-09-02
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a modification to Elements to enable transaction fees to be paid in issued assets in addition to the <code>policyAsset</code>. To enable this, the specific issued assets that will be accepted and the corresponding fee rate, relative to the applied <code>policyAsset</code> rate must be agreed and configured by block creators and communicated to users and implemented in wallets. To enable the use of issued asset fees requires changes to policy rules for transaction relay and block creator mempool acceptance, and changes to block creation to enable issued asset fees to be paid to specified destinations in coinbase outputs. Issued asset fee acceptance and payout in the coinbase transaction is valid within the current consensus rules and so none of the features described here require any consensus fork to deploy. In addition to the core changes to policy and block creation, this document also proposes features to enable both publication of accepted assets and fee rates on-chain for use by wallets, and a mechanism to update the assets and rates accepted by nodes via an authenticated on-chain transaction. 
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+In Elements, transaction fees are required in order to prevent denial of service attacks and to prioritise transactions for limited blockspace. Unlike in Bitcoin, where transaction fees are determined from the difference between the total input and output values, in Elements transaction fees are specified by an explicit unblinded output (signified by an empty <code>scriptPubKey</code>) and input and output totals for all assets must equal. In the current Elements implementaion, policy rules for relay and mempool acceptance require that the <code>assetID</code> of this fee output be equal to the <code>policyAsset</code>. The current consensus rules however allow for any <code>assetID</code> for the fee asset (so long as the transaction is otherwise valid) as well as no fee output (however, a specified fee output with zero fee is not consensus valid). The current conseus rules also allow for coinbase outputs for any asset with values equal to or less than the total fee outputs for that asset for all transactions in a block, however the current Elements code will only create a block with a single spendable coinbase output for the total of <code>policyAsset</code> fees. 
+
+These current restrictions limit the usefulness of the Elements platform for transacting in issued assets, as <code>policyAsset</code> is always then required for the payment of transaction fees. For example, for a Bitcoin sidechain (e.q. Liquid) there are many issued assets for tokensied currencies (e.g. USDT) which many users will use for making payments, however they must obtain an amount of the <code>policyAsset</code> (e.g. LBTC) before they can transact, and the fees will be priced in BTC instead of USD. This leads to a poor user experience when transacting in tokenised stablecoins, as a new user will be required to purchase LBTC before they are able to spend USDT that they have received in their wallet. In addition, the value of transaction fee required will not be explicit in terms of USDT and depend on the current USD value of BTC. By enabling fees to be paid in specified issued assets and at specified rates, user wallets can transact in an issued asset like USDT seamlessly, with predictable and transparent fees. 
+
+In addition to enabling the issued asset transaction fees to be accepted, and payment of these fees in the coinbase, there needs to be a method for wallets and users to know which assets are accepted by block creators and at what rates. The simplest and most robust way of achieving this is with a publication of the accepted assets and rates by block creators on chain, in the coinbase - this removes the requirement for separate servers to publish and relay this data. 
+
+Finally, a method is required to set the assets and rates that will be applied and enforced on relay/bridge and block creation nodes. These can be set with direct access to the node, either via the node configuration or the RPC interface. However, these assets and rates may need to be updated frequently, and it may be impractical and have security implications to have direct access to functionary and bridge nodes to perform these updates via the RPC interface. Therefore, a method to perform this update remotely via an on-chain transaction is also required. Individual nodes can then be configured with a 'controller' script that authenticates changes to the asset fee policy without requiring direct access to any individual nodes. 
+
+==Design==
+
+===Overview===
+
+We propose a modification to Elements to enable to use of transaction fees paid in specified issued assets in addition to the <code>policyAsset</code> at specified rates relative to the base <code>policyAsset</code> rate applied. This requires no changes to the consensus rules, and these changes can be deployed without requiring a network fork. The specified assets and rates will be applied to relay and mempool policy, and the fees will be paid to specified destinations in the coinbase transaction of created blocks. 
+
+Each node has complete control over which assets and rates to accept as policy, however in practice all block creators and bridge nodes *should* agree to apply the same asset fee policy in order to provide a reliable service for users. Each node will be able to directly specify what assets and at what rate they will apply to policy. This can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate (and optionally the coinbase destination for the fee collection by the block creator) before initialisation, or set dynamically at runtime via a new RPC option. Note that if the consesus parameter <code>c_mandatory_coinbase_destination</code> is set to a non-empty script, then this cannot be overridden and all asset fee coinbase outputs must be paid to the <code>c_mandatory_coinbase_destination</code> script. In addition, a new RPC will be added to query the current assets, rates (and destinations) currently being applied by any node. 
+
+The asset fee rate will be applied relative to whatever the current <code>policyAsset</code> rate (in sat/vbyte) is applied for a given transaction. The total transaction fee calculated for mempool/relay policy and block creation is: 
+
+<code>
+vsize * policy_asset_fee_rate * issued_asset_fee_rate
+</code>. 
+
+E.g. An issued asset is USDT. The current conversion between USDT and LBTC (<code>policyAsset</code>) is 100:1 (i.e. 100 USDT to one LBTC) the rate applied (<code>issued_asset_fee_rate</code>) would then be 100. Therefore, if the USDT asset is used for the fee in a transaction, they should pay 100 times the fee amount in LBTC for the equivalent value. If the current minimum fee rate is 1 vsat/byte in LBTC (i.e. the <code>policy_asset_fee_rate</code>), then the minimum fee output value required for an e.g. <code>vsize = 257</code> transaction would be: <code>257 x 1 x 100 = 25700</code> base units of the USDT asset. 
+
+A new configuration option will be added to enable any node that is creating blocks to publish the assets, rates (and optionally destination) they are applying to their own policy. This information will be encoded into an <code>OP_RETURN</code> output for each accepted asset and included in the coinbase transaction for blocks that they create every <code>N</code> blocks (where <code>N</code> is specified in the configuration). Wallets and users will then be able to read and decode the latest assets and rates being applied by block creators and use this information for determining fees when creating transactions. For ease in retrieving this, all nodes will cache the latest rates which can be accessed via a new RPC. This publication method assumes that all block creators are applying the same assets and rates to their policy, which they would need to agree upon. 
+
+In order for the acceptance of issued asset and rates for fees to be reliable and predictable, all block creators and bridging nodes (and all relaying nodes) should be applying the same policy with the same list of accepted assets and rates. To coordinate this and apply changes to a large number of nodes is impractical, which may be required regularly as exchange rates change. To provide an alternative method for remotely modifying the accepted assets and rates, individual nodes can be configured to accept updates via an on-chain transaction - this way all block creator and bridge nodes can have their applied policy updated simultaneously without requiring direct access to the RPC interface. 
+
+To enable this, each node can be configured with a specified <code>scriptPubKey</code> that authorises the policy update. This is called the 'controller' <code>scriptPubKey</code> (but it can be a multisig representing several entities that must agree to any update). The controller(s) create a transaction with the <code>scriptPubKey</code> as the first output (as well as spending from the same <code>scriptPubKey</code>), and this transaction contains an additional <code>OP_RETURN</code> output for each fee asset to be accepted, encoded with the assetID, rate (and optional destination). 
+
+Each configured node detects the configured controller <code>scriptPubKey</code> in a confirmed transaction output. It then verifies that this transaction spends from an output with the same <code>scriptPubKey</code> (this authenticates the transaction by verifying input <code>scriptPubKey</code> witness) and decodes each of the <code>OP_RETURN</code> outputs in the transaction to update the node assetID and rate applied to policy (and destination if creating blocks and <code>c_mandatory_coinbase_destination</code> not used.)
+
+===Specification===
+
+====Issued asset fees====
+
+Accepted assets, rates (and optional destination) are stored in a vector <code>assetFeeRates</code> of <code>CAssetFeeRate</code> objects. 
+This object contains the <code>CAsset</code> asset ID, the <code>int64_t</code> fee rate and <code>CScript</code> fee destination. 
+
+For each supported issued asset, there is specified fee rate (<code>issued_asset_fee_rate</code>). This is specified as a fixed precision number (the number of decimal places supported is specified by <code>int64_t</code> <code>ASSET_RATE_SCALE_FACTOR = 100000000</code>). The maximum possible rate is then <code>std::numeric_limits<int64_t>::max() / ASSET_RATE_SCALE_FACTOR (9223372036854775807 / 100000000 = 92233720368</code>).
+
+The fee asset and rate can be configured for an individual node with the option:
+
+<code>-setfeeassetrate=<assetID:rate-script></code>: set the </code>assetID:rate-script<code> applied to relay and mempool policy for this node. Optional script to set destination for coinbase fees for each asset. If <code>mandatory_coinbase_destination</code> is set as a consensus rule, then this is not currently possible and will return an error. 
+
+This can be repeated for additional fee assets and rates. The maximum number of fee assets allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code>. 
+
+A new accepted fee asset can be added on demand at runtime with the RPC:
+
+<code>updatefeeassetrate</code> add new assetID, rate, (optional) destination script to apply to node policy or update the rates of existing configured assets dynamically.
+
+<code>getassetfeerate</code> get all assetID, rate, script applied by this client.
+
+Note: In the current Elements, consensus enforces that any individual fee output, or the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could exceed this, as individual assets might have much larger issuances. Therefore, currently in <code>BlockAssember</code> the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. However, this may limit transaction capacity and fee revenue on the future. This limitation can be removed along with any hardfork enabling: https://github.com/ElementsProject/elements/pull/1476
+
+====Fee rate publication====
+
+Asset fee rates (and optional destination) encoded in coinbase <code>OP_RETURN</code> as follows:
+
+* 4 bytes: <code>AFEE</code>
+* 32 bytes: asset ID
+* 16 bytes: fee rate (uint_64 encoded)
+* (up to) 35 bytes: fee destination script
+
+The maximum number of additional outputs is limited to <code>MAX_ISSUED_ASSET_FEE_SIZE</code>. The max size for transactions must be reduced by the additional space taken by the additional coinbase outputs. 
+
+Config option:
+
+<code>-writefeeassetrate=n</code> Write issued asset fee rates accepted as policy to the coinbase of created blocks with interval <code>n</code> (default: 0).
+
+If <code>n</code> is 0 then fee assets and rates are not written.
+
+If <code>n</code> > 0 then any accepted assets and fee rates set via RPC or config are published every <code>n</code> blocks.
+Any fee rates updated by <code>setassetfeerate</code> or controller script are not applied to policy until the end of an epoch.
+
+A new RPC <code>getsignerfeerates</code> retrieves the latest published accepted assets and rates (cached). 
+<code>getassetfeerate</code> has a single boolean argument to either retrieve the latest updated fee rates, or the rates applied in the current epoch. 
+
+On node restart, the cached rates are updated from the latest publication. 
+
+====Controller fee asset rate updates====
+
+Feature for issued asset fees that enables an external controller to set issued asset fee policy via an onchain transaction, with asset fee rates encoded in <code>OP_RETURN</code> outputs.
+Any node can be configured to apply issued asset fee policy that is set by a controller (this does not need to be a single entity, but can be defined by any multisig script). This is set with a config option:
+
+<code>-confeeassetrate=scriptPubKey</code>
+
+where <code>scriptPubKey</code> is the script that is used by the controller(s) to set the setting rate in a transaction.
+<code>-confeeassetrate</code> cannot be set at the same time as <code>-setfeeassetrate</code> (will generate error). 
+A valid controller transaction must spend from an output where the <code>scriptPubKey</code> is also the same controller script (this is used as an authentication mechanism).
+
+The format for the <code>OP_RETURN</code> encoding is that same as that used for the fee rate publication. 
+
+Python function to encode to <code>OP_RETURN</code> hex string:
+
+<code>
+def encode_asset_fee_rate(rate, asset_id, dest_script):
+        ASSET_RATE_SCALE_FACTOR = 10**8  # 8 decimal places
+        scaled_rate = round(rate * ASSET_RATE_SCALE_FACTOR)
+        # Convert to 8-byte hex string (16 characters)
+        encoded_rate = format(scaled_rate, '016x')
+        # Encode asset with rate and destination
+        return "afee" + asset_id + encoded_rate + dest_script
+</code>
+
+==Backwards Compatibility==
+
+No issues for backwards compatibility - all existing transactions with policy asset fees are unaffected by these features. No changes to consesus rules are required. 
+
+==Test Vectors==
+
+* Configure issued asset with fee rate of <code>issued_asset_fee_rate = 2</code>
+
+<pre>-setfeeassetrate=e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0:2</pre>
+
+* Get configured fee asset rates
+
+<pre>getassetfeerate</pre>
+
+Result:
+
+<pre>[{'asset': 'e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0', 'rate': Decimal('2'), 'script': ''}]</pre>
+
+* Transaction with 1 input and 2 outputs (+ 1 fee output) with asset fee at rate 2:
+
+** vsize: 257
+
+** Fee: 514
+
+<pre>0200000001016f90831e415a738df732b62dd0b76e87bbe489096e43c892bf3dcbbfd173778d0000000000feffffff0301a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002faf08000160014c5439a67eaa99a308719b544f327a942ae02e6a701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002f967de0016001467c8c91e8357e1e24d1721c4535a99608e47beb701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee801000000000000020200006c0000000000024730440220031c1aa256e40a89cf622374e1ef281870a6abb6f588411800fe885f5195a49e02204f3c37cfe2318db87ac7ce4d7da70682e3477653f6222383ab72ea259a3b1fae0121029896a2fe9c710b8b71488b90038d3974144dc21c9c8750459162dc37d141459300000000000000</pre>
+
+* Update issued asset fee rate to 5 with RPC
+
+<pre>updatefeeassetrate e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0 5</pre>
+
+* Get configured fee asset rates
+
+<pre>getassetfeerate</pre>
+
+Result:
+
+<pre>[{'asset': 'e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0', 'rate': Decimal('5'), 'script': ''}]</pre>
+
+* Transaction with 1 input and 2 outputs (+ 1 fee output) with asset fee at rate 5:
+
+** vsize: 257
+
+** Fee: 2570
+
+<pre>0200000001015ce5df8217dfa572d4539d0ae05178be26c27dbc43af35f6877f0160c8d329360100000000feffffff0301a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000001312d0000160014fc060cafa93c7f4d5e0963ba08c55540c28361bf01a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000001c830d4001600141f79c72bcdad5c20c17337c1f22c3b41f156c53d01a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000000000a0a00004100000000000247304402205bc1f97638e5b1932ba6df702e938bd1cfdc6da46a4db8511fe172f821f102c502206a6fbe66d81e89bd78b4157d58af15e8c940e0c0d797cbe91535fb31683e013601210291d9c10cf976e932db8ffe0f2bf1d9c1574ea3affe2e0f98ff15e1b328eb860300000000000000</pre>
+
+* Configuration for fee asset rate publication:
+
+<pre>-writefeeassetrate=100</pre>
+
+<pre>updatefeeassetrate b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22 1.86</pre>
+<pre>updatefeeassetrate af6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3 3.781</pre>
+
+Coinbase transaction:
+
+<pre>0200000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0401640101ffffffff0401230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeaf6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3000000008d1ba84001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22000000001689592001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000012a05f200001976a9149d8419680d03a0ac4133beb9e097d5c9ff7babbc88ac01230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000000000000000266a24aa21a9ed5aa9aac025ce73291c124e2ccfd44ae60837d1f20a8573318427075444287de800000000000001200000000000000000000000000000000000000000000000000000000000000000000000000000000000</pre>
+
+Output 1:
+
+<pre>afeeaf6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3000000008d1ba840</pre>
+
+Output 2:
+
+<pre>afeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000016895920</pre>
+
+* Controller transaction
+
+<pre>
+controler_script = "00145956bc071791295bfd5161ddb770aa536289b3e3"
+controller_addr = "ert1qt9ttcpchjy54hl23v8wmwu922d3gnvlrz7sqx7"
+private_key = "cP3N3Z3rMTo4L2gNRDWmzo8nGNyVNnWwFX9DRVPqwcPnMWE8Rn33"
+</pre>
+
+Configuration
+
+<pre>-confeeassetrate=00145956bc071791295bfd5161ddb770aa536289b3e3</pre>
+
+Fee Asset setting:
+
+<pre>asset_id = b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22</pre>
+
+rate = 1.0
+
+Encoded fee asset hex string:
+
+<pre>afeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000005f5e100</pre>
+
+Controller transaction:
+
+<pre>020000000001500d712c870c96c0bec05f41d765f4f5f203bd8d5b7ea6ef333b53b8c2c2d164000000006a47304402207f1b2c580ee052b8d0da06a139cd1e910ec93c8b11585d692646e6267b8354c4022045caab622e3adbae204263dfdc86e341fd9f3c013cbf2234fdea2c8ee2ba0d81012103ba4a2b1f401eb59e1e6b104f8043ce41b38b65bd24c10edb3df8863b0241e5afffffffff0301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000012a046b60001600145956bc071791295bfd5161ddb770aa536289b3e301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000005f5e10001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b20100000000000186a0000000000000</pre>
+
+<pre>getassetfeerate</pre>
+
+<pre>[{'asset': 'b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22', 'rate': 1, 'script': ''}]</pre>
+
+<references />
