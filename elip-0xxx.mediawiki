@@ -1,0 +1,106 @@
+<pre>
+  ELIP: tbd
+  Layer: Applications
+  Title: Optional sidechain peg-in subsidy and minimum peg-in amount
+  Author: Byron Hambly <bhambly@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0tbd
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-09-01
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes an optional mempool policy and configuration for Elements sidechains to require that users pay a subsidy for peg-in transactions, and/or to enforce a minimum peg-in amount.
+The subsidy is a required <code>OP_RETURN</code> output on sidechain peg-in claim transactions, that burns an amount proportional to the fee rate of the parent transaction. This subsidizes the cost of spending these outputs for the sidechain operator at similar fee rates.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Sidechain operators manage the funds on the parent chain, where each peg-in transaction creates a new output in their control. Depending on their wallet setup, they may face large fees when consolidating or renewing timelocks on these outputs.
+
+The optional mempool policies proposed here give sidechain operators configurable options to enable a peg-in subsidy from a specific chain height, an amount threshold above which no subsidy is required, and a minimum peg-in amount from a specified height.
+
+These options allow the operator to ensure that new outputs from peg-ins subsidize the cost of their own consolidation, and encourage users to use alternative options like atomic swaps for amounts below the subsidy threshold.
+
+==Design==
+
+===Overview===
+
+New optional configurable chain parameters are added to Elements: peg-in subsidy height, peg-in subsidy threshold amount, peg-in minimum height, and peg-in minimum amount. Their default values leave them disabled unless specified. If a subsidy height is set, then from that height a peg-in transaction must include a subsidy output if the value of the peg-in is below the subsidy threshold value. Independently, if a minimum peg-in amount is set then any peg-in value must be greater than that minimum amount, after the peg-in minimum block height.
+
+A subsidy output is an <code>OP_RETURN</code> output in the sidechain claim transaction that burns a value equal to spending the new parent output at the parent transaction fee rate. Elements RPCs <code>claimpegin</code> and <code>createrawpegin</code> are modified to create these subsidy outputs when required, and mempool policy validation is added to check for subsidies and minimum peg-in amounts as configured.
+
+===Specification===
+
+====Node====
+
+New options are added to Elements configuration: <code>peginsubsidyheight</code>, <code>peginsubsidythreshold</code>, <code>peginminheight</code>, and <code>peginminamount</code>. By default, these are unset. For <code>peginsubsidythreshold</code> and <code>peginminamount</code> this is an amount of 0, and for <code>peginsubsidyheight</code> and <code>peginminheight</code> this is the value of int32 max.
+
+New mempool validation is implemented to check for a peg-in subsidy from the subsidy height. This requires that a peg-in transaction, whose value is below the subsidy threshold, must contain one or more <code>OP_RETURN</code> outputs burning the value of spending a P2WSH output on the parent chain at the same fee rate as the parent peg-in. A new policy will also reject peg-ins below the minimum peg-in amount after the minimum peg-in height.
+
+This validation requires that the sidechain node is validating peg-ins against the parent node, as the sidechain node calls <code>getrawtransaction</code> to retrieve the fee paid and vsize of the parent transaction to calculate its fee rate. If the sidechain node is not validating peg-ins (<code>validatepegin=0</code>), then it will accept the transaction without subsidy check, but this transaction will fail to be relayed to nodes that are validating peg-ins. The minimum acceptable parent fee rate is 1 sat/vb.
+
+It is expected that the Federated Peg script (fedpegscript) starts with a t-of-n <code>OP_CHECKMULTISIG</code> path, followed by optional fallback spending conditions.
+
+The value of the required subsidy for peg-ins below the threshold after the subsidy chain height is calculated as follows:
+
+* count the number of the peg-in inputs in the transaction
+* decompose the peg-in input witness into its constituent parts: amount, asset, genesis hash, claim script, parent transaction, and Merkle block
+* calculate the parent txid from the parent transaction, and the parent block hash from the header of the Merkle block
+* call <code>getrawtransaction</code> on the parent node with the txid, block hash, and verbose=2 to return the parent transaction and fee information
+* use the returned fee and vsize to calculate the fee rate of the parent transaction(s) in sats/vb
+* from the fedpegscript parse the value for <code>t</code> of the first <code>OP_CHECKMULTISIG</code> script
+* multiply the parent fee rate by the number of peg-in inputs and the cost of spending a P2WSH output with <code>t</code> signatures
+
+The cost of spending a P2WSH output is calculated as:
+
+* Weight of non-witness data: <code>prev txid (32 bytes) + vout (4 bytes) + scriptsig len (1 byte) + sequence number (4 bytes) = 41 * WITNESS_SCALE_FACTOR (4) = 164 WU</code>
+* Weight of witness data: <code>t * signatures (72 bytes) + size of fedpegscript (variable) = WITNESS_BYTES WU</code>
+* Virtual size for spending this input: <code>(164 + WITNESS_BYTES + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR = VSIZE vbytes</code>
+
+The subsidy (<code>OP_RETURN</code>) output for the peg-in whose value is below the threshold is then:
+
+* <code>fee rate of parent transaction in sat/vbyte * VSIZE vbytes</code>
+
+For Liquidv1 chain, the fedpegscript <code>t-of-n</code> quorum is <code>11-of-15</code>, and with fallback script the total size is 626 bytes.
+
+This gives the following calculation for the peg-in subsidy on Liquidv1, if/when it is active and the value is below the subsidy threshold:
+
+* <code>WITNESS_BYTES = 11 * 72 + 626 = 1418 WU</code>
+* <code>VSIZE = (164 + 1418 + 3) / 4 = 396 vbytes</code>
+
+So for a parent (Bitcoin) transaction at fee rate of 1 sat/vb, the sidechain peg-in claim transaction for 1 peg-in output must burn a value of 396 lsats.
+
+To generalize this for Liquidv1 peg-in claims: <code>required subsidy = number of peg-ins * total parent fee rate * 396 lsats</code>, where <code>total parent fee rate = sum of parent fees / sum of parent vsizes</code>.
+
+====Wallet====
+
+Wallets implementing peg-in claim transactions after the subsidy height, for values below the subsidy threshold, must subtract the subsidy value from the peg-in value, and add an <code>OP_RETURN</code> output with that value. The value must be calculated as given above, which for a Liquidv1 peg-in claim for a single peg-in output at 1 sat/vb parent fee rate is 396 lsats.
+
+The Elements wallet RPCs <code>claimpegin</code> and <code>createrawpegin</code> can do this automatically when <code>validatepegin=1</code>, or manually only by specifying the parent fee rate when <code>validatepegin=0</code>.
+
+The Elements RPCs for <code>getpeginaddress</code> and <code>getsidechaininfo</code> are updated to return relevant details about the peg-in subsidy height and threshold, and peg-in minimum height and amount in their responses, if configured.
+
+==Backwards Compatibility==
+
+These changes are in mempool policy validation only and have no effect on consensus. Un-upgraded nodes will not create the required subsidy outputs, but upgraded block creators will not accept these transactions after the subsidy height enforcement.
+
+==Reference Implementation==
+
+todo
+
+==Test Vectors==
+
+todo
+
+==References==
+
+<references />
