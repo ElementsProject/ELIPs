@@ -77,13 +77,13 @@ This gives the following calculation for the peg-in subsidy on Liquidv1, if/when
 * <code>WITNESS_BYTES = 11 * 72 + 626 = 1418 WU</code>
 * <code>VSIZE = (164 + 1418 + 3) / 4 = 396 vbytes</code>
 
-So for a parent (Bitcoin) transaction at fee rate of 1 sat/vb, the sidechain peg-in claim transaction for 1 peg-in output must burn a value of 396 lsats.
+So for a parent (Bitcoin) transaction at fee rate of 1 sat/vb, the sidechain peg-in claim transaction for 1 peg-in output must burn a value of 396 Lsat.
 
-To generalize this for Liquidv1 peg-in claims: <code>required subsidy = number of peg-ins * total parent fee rate * 396 lsats</code>, where <code>total parent fee rate = sum of parent fees / sum of parent vsizes</code>.
+To generalize this for Liquidv1 peg-in claims: <code>required subsidy = number of peg-ins * total parent fee rate * 396 Lsat</code>, where <code>total parent fee rate = sum of parent fees / sum of parent vsizes</code>.
 
 ====Wallet====
 
-Wallets implementing peg-in claim transactions after the subsidy height, for values below the subsidy threshold, must subtract the subsidy value from the peg-in value, and add an <code>OP_RETURN</code> output with that value. The value must be calculated as given above, which for a Liquidv1 peg-in claim for a single peg-in output at 1 sat/vb parent fee rate is 396 lsats.
+Wallets implementing peg-in claim transactions after the subsidy height, for values below the subsidy threshold, must subtract the subsidy value from the peg-in value, and add an <code>OP_RETURN</code> output with that value. The value must be calculated as given above, which for a Liquidv1 peg-in claim for a single peg-in output at 1 sat/vb parent fee rate is 396 Lsat.
 
 The Elements wallet RPCs <code>claimpegin</code> and <code>createrawpegin</code> can do this automatically when <code>validatepegin=1</code>, or manually only by specifying the parent fee rate when <code>validatepegin=0</code>.
 
@@ -99,7 +99,51 @@ todo
 
 ==Test Vectors==
 
-todo
+For a <code>t-of-n</code> fedpegscript of size <code>S</code> bytes with configuration <code>peginsubsidyheight=H</code> and <code>peginsubsidythreshold=X</code>:
+
+Before block height <code>H</code>:
+
+* no subsidy is required for any peg-in value
+
+After block height <code>H</code>:
+
+* no subsidy is required for a total peg-in value of <code>X</code> BTC or greater
+
+For a claim transaction with <code>P</code> peg-in outputs with total value below <code>X</code> BTC:
+
+* at a parent fee rate of <code>F</code> sat/vb, the claim transaction requires a subsidy of: <code>P * F * (164 + t * 72 + S + 3) / 4</code> sidechain satoshis
+
+----
+
+For an <code>11-of-15</code> fedpegscript of size <code>626</code> bytes (Liquidv1) with configuration <code>peginsubsidyheight=5000</code> and <code>peginsubsidythreshold=1.0</code>:
+
+Before block height <code>5000</code>:
+
+* no subsidy is required for any peg-in value
+
+After block height <code>5000</code>:
+
+* no subsidy is required for a total peg-in value <code>1.0</code> BTC or greater
+
+For a claim transaction with P peg-in outputs with total value below <code>1.0</code> BTC:
+
+* at a parent fee rate of <code>F</code> sat/vb, the claim transaction requires a subsidy of: <code>P * F * (164 + 11 * 72 + 626 + 3) / 4</code> Lsat
+
+For a claim transaction with 1 peg-in output with total value below <code>1.0</code> BTC:
+
+* at a parent fee rate of  1 sat/vb, the claim transaction requires a subsidy of  396 Lsat
+* at a parent fee rate of  2 sat/vb, the claim transaction requires a subsidy of  792 Lsat
+* at a parent fee rate of  3 sat/vb, the claim transaction requires a subsidy of 1188 Lsat
+* at a parent fee rate of  4 sat/vb, the claim transaction requires a subsidy of 1584 Lsat
+* at a parent fee rate of 10 sat/vb, the claim transaction requires a subsidy of 3960 Lsat
+
+For a claim transaction with 2 peg-in outputs with total value below 1.0 BTC:
+
+* at a parent fee rate of  1 sat/vb, the claim transaction requires a subsidy of  792 Lsat
+* at a parent fee rate of  2 sat/vb, the claim transaction requires a subsidy of 1584 Lsat
+* at a parent fee rate of  3 sat/vb, the claim transaction requires a subsidy of 2376 Lsat
+* at a parent fee rate of  4 sat/vb, the claim transaction requires a subsidy of 3168 Lsat
+* at a parent fee rate of 10 sat/vb, the claim transaction requires a subsidy of 7920 Lsat
 
 ==References==
 
