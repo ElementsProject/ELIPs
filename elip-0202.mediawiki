@@ -1,10 +1,10 @@
 <pre>
-  ELIP: 202
+  ELIP: ???
   Layer: Applications
   Title: Issued Asset Fees
   Author: Tom Trevethan <ttrevethan@blockstream.com>
   Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0202
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0???
   Status: Draft
   Type: Standards Track
   Created: 2025-09-02
@@ -15,7 +15,7 @@
 
 ===Abstract===
 
-This document proposes a modification to Elements to enable transaction fees to be paid in issued assets in addition to the <code>policyAsset</code>. To enable this, the specific issued assets that will be accepted and the corresponding fee rate, relative to the applied <code>policyAsset</code> rate must be agreed and configured by block creators and communicated to users and implemented in wallets. To enable the use of issued asset fees requires changes to policy rules for transaction relay mempool acceptance and ordering, and changes to block creation to enable issued asset fees to be paid to specified destinations in coinbase outputs. Issued asset fee acceptance and payout in the coinbase transaction is valid within the current consensus rules and so none of the features described here require any consensus fork to deploy. In addition to the core changes to policy and block creation, this document also proposes features to enable both publication of accepted assets and fee rates on-chain for use by wallets, and a mechanism to update the assets and rates accepted by nodes via an authenticated on-chain transaction.
+This document proposes a modification to Elements to enable transaction fees to be paid in issued assets in addition to the <code>policyAsset</code> (or pegged asset). To enable this, the specific issued assets that will be accepted for fees and the corresponding fee rate (relative to the enforced <code>policyAsset</code> rate) must be agreed and configured by all block creators and also communicated to users and implemented in wallets. To enable the use of issued asset fees requires changes to policy rules for transaction relay mempool acceptance and ordering, and changes to block creation to enable issued asset fees to be paid to specified destinations in coinbase outputs. Issued asset fee acceptance and payout in the coinbase transaction is valid within the current consensus rules and so none of the features described here require any consensus fork to deploy. In addition to these changes to policy and block creation, this document also proposes features to enable both publication of accepted assets and fee rates on-chain for use by wallets, and a method to update the fee asset policy applied by nodes remotely via an authenticated on-chain transaction.
 
 ===Copyright===
 
@@ -23,56 +23,45 @@ This document is licensed under the 3-clause BSD license.
 
 ===Motivation===
 
-In Elements, transaction fees are required in order to prevent denial of service attacks and to prioritize transactions for limited block space. Unlike in Bitcoin, where transaction fees are determined from the difference between the total input and output values, in Elements transaction fees are specified by an explicit unblinded output (signified by an empty <code>scriptPubKey</code>) and input and output totals for all assets must equal. In the current Elements implementation, policy rules for relay and mempool acceptance require that the <code>assetID</code> of this fee output be equal to the <code>policyAsset</code>. The current consensus rules however allow for any <code>assetID</code> for the fee asset (so long as the transaction is otherwise valid) as well as no fee output (however, a specified fee output with zero fee is not consensus valid). The current consensus rules also allow for coinbase outputs for any asset with values equal to or less than the total fee outputs for that asset for all transactions in a block. However the current Elements code will only create a block with a single spendable coinbase output for the total of <code>policyAsset</code> fees.
+In Elements, transaction fees are required in order to prevent denial of service attacks and to prioritize transactions for limited block space and are specified by an explicit unblinded output (signified by an empty <code>scriptPubKey</code>). In the current Elements implementation, policy rules for transaction relay and mempool acceptance require that the <code>assetID</code> of this fee output be equal to the <code>policyAsset</code>. The current consensus rules however allow for any <code>assetID</code> for the fee asset (so long as the transaction is otherwise valid). The current consensus rules also allow for coinbase outputs for any asset with values equal to or less than the total fee outputs for that asset for all transactions in a block. However the current Elements code will only create a block with a single spendable coinbase output for the total of <code>policyAsset</code> fees. 
 
 These current restrictions limit the usefulness of the Elements platform for transacting in issued assets, as <code>policyAsset</code> is always then required for the payment of transaction fees. For example, for a Bitcoin sidechain (e.q. Liquid) there are many issued assets for tokenized currencies (e.g. USDT) which many users will use for making payments. However they must obtain an amount of the <code>policyAsset</code> (e.g. LBTC) before they can transact, and the fees will be priced in BTC instead of USD. This leads to a poor user experience when transacting in tokenized stablecoins, as a new user will be required to purchase LBTC before they are able to spend USDT that they have received in their wallet. In addition, the value of transaction fee required will not be explicit in terms of USDT and depend on the current USD value of BTC. By enabling fees to be paid in specified issued assets and at specified rates, user wallets can transact in an issued asset like USDT seamlessly, with predictable and transparent fees.
 
-In addition to enabling the issued asset transaction fees to be accepted, and payment of these fees in the coinbase, there needs to be a method for wallets and users to know which assets are accepted by block creators and at what rates. The simplest and most robust way of achieving this is with a publication of the accepted assets and rates by block creators on chain, in the coinbase - this removes the requirement for separate servers to publish and relay this data.
+In addition to enabling the issued asset transaction fees to be accepted, and payment of these fees in the coinbase of new blocks, there needs to be a method for wallets and users to know which assets are accepted by block creators and at what rates. The simplest and most robust way of achieving this is with a publication of the accepted assets and rates by block creators on chain, in the coinbase transaction - this removes the requirement for separate servers to publish and relay this data. 
 
-Finally, a method is required to set the assets and rates that will be applied and enforced on relay/bridge and block creation nodes. These can be set with direct access to the node, either via the node configuration or the RPC interface. However, these assets and rates may need to be updated frequently, and it may be impractical and have security implications to have direct access to functionary and bridge nodes to perform these updates via the RPC interface. Therefore, a method to perform this update remotely via an on-chain transaction is also required. Individual nodes can then be configured with a 'controller' script that authenticates changes to the asset fee policy without requiring direct access to any individual nodes.
+Finally, a method is required to configure which assets and corresponding fee rates will be applied to policy on relaying and block creation nodes. These can be set with direct access to the node, either via the node configuration or the RPC interface. However, the accepted assets and fee rates may need to be updated frequently, and it may be impractical and have security implications to have direct access to functionary and bridge nodes to perform these updates via the RPC interface. Therefore, a method to perform this update remotely via an on-chain transaction is also required. Individual nodes can then be configured with a 'controller' script that authenticates changes to the asset fee policy without requiring direct access to any individual nodes. 
 
 ==Design==
 
 ===Overview===
 
-We propose a modification to Elements to enable to use of transaction fees paid in specified issued assets in addition to the <code>policyAsset</code> at specified rates relative to the current <code>policyAsset</code> rate applied. This requires no changes to the consensus rules, and these changes can be deployed without requiring a network fork. The specified assets and rates will be applied to relay and mempool policy, mempool ordering, and these fees will be paid to specified destinations in the coinbase transaction of created blocks.
+Each node has complete control over which assets and at what fee rates to accept as policy. However, in practice all block creators and relaying nodes should agree to apply the same asset fee policy in order to provide a reliable service for users. The assets and fee rates accepted by any node can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or this can be set dynamically at runtime via a new RPC. In addition, a new RPC will be added to query the current assets, rate multiplier (and destinations) currently being applied to policy by any node.
 
-Each node has complete control over which assets and at what rates to accept as policy, however in practice all block creators and relaying nodes *should* agree to apply the same asset fee policy in order to provide a reliable service for users. Each node will be able to directly specify what assets and at what rate they will apply to policy. This can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or set dynamically at runtime via a new RPC option. Note that if the consensus parameter <code>c_mandatory_coinbase_destination</code> is set to a non-empty script, then this cannot be overridden and all asset fee coinbase outputs must be paid to the <code>c_mandatory_coinbase_destination</code> script. In addition, a new RPC will be added to query the current assets, rate multiplier (and destinations) currently being applied by any node.
+For fee outputs in an issued asset, the fee rate (in units/vbyte) will be scaled to determine an 'effective rate'. This effective rate is then used in place of the <code>policyAsset</code> fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
 
-For fees outputs in an issued asset, the fee rate (in units/vbyte) will be scaled by a fee rate multiplier to determine an 'effective rate'. This effective rate is then used in place of the policyAsset fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
-
-E.g. An issued asset is USDT. The current conversion rate between USDT and LBTC (<code>policyAsset</code>) is 100:1 (i.e. 100 USDT to one LBTC) the issued asset fee rate multiplier would then be set to 0.01 (i.e. the fee paid in USDT will be multiplied by 0.01 for comparison with LBTC fees). If the USDT asset is used for the fee in any transaction, it should pay 100 times in USDT base units the fee rate that would have applied in LBTC (the policyAsset). If the current minimum fee rate for mempool and relay is 1 sat/vbyte in LBTC (i.e. the policy asset fee rate), then the effective minimum fee rate for this asset would be 100 units/byte. The minimum fee output value required for a transaction of size e.g. <code>vsize = 257</code> transaction to be relayed would be: <code>257 x 1 x 100 = 25700</code> base units of the USDT asset. 
-
-A new configuration option will be added to enable any node that is creating blocks to publish the assets, rates (and optionally destination) they are applying to their own policy. This information will be encoded into an <code>OP_RETURN</code> output for each accepted asset and included in the coinbase transaction for blocks that they create every <code>N</code> blocks (where <code>N</code> is specified in the configuration). Wallets and users will then be able to read and decode the latest assets and rates being applied by block creators and use this information for determining fees when creating transactions. For ease in retrieving this, all nodes will cache the latest rates which can be accessed via a new RPC. This publication method assumes that all block creators are applying the same assets and rates to their policy, which they would need to agree upon.
-
-In order for the acceptance of issued asset and rates for fees to be reliable and predictable, all block creators and bridging nodes (and all relaying nodes) should be applying the same policy with the same list of accepted assets and rates. To coordinate this and apply changes to a large number of nodes is impractical, which may be required regularly as exchange rates change. To provide an alternative method for remotely modifying the accepted assets and rates, individual nodes can be configured to accept updates via an on-chain transaction - this way all block creator and bridge nodes can have their applied policy updated simultaneously without requiring direct access to the RPC interface.
-
-To enable this, each node can be configured with a specified <code>scriptPubKey</code> that authorizes the policy update. This is called the 'controller' <code>scriptPubKey</code> (but it can be a multisig representing several entities that must agree to any update). The controller(s) create a transaction with the <code>scriptPubKey</code> as the first output (as well as spending from the same <code>scriptPubKey</code>), and this transaction contains an additional <code>OP_RETURN</code> output for each fee asset to be accepted, encoded with the assetID, rate (and optional destination).
-
-Each configured node detects the configured controller <code>scriptPubKey</code> in a confirmed transaction output. It then verifies that this transaction spends from an output with the same <code>scriptPubKey</code> (this authenticates the transaction by verifying input <code>scriptPubKey</code> witness) and decodes each of the <code>OP_RETURN</code> outputs in the transaction to update the node assetID and rate applied to policy (and destination if creating blocks and <code>c_mandatory_coinbase_destination</code> not used.)
+E.g. An issued asset is USDT. The current accepted exchange rate between USDT and LBTC (the policyAsset) is $114,171.23 to 1 LBTC. The issued asset fee rate multiplier for this ratio is then set to 1/114,171.23 = 0.00000876 (rounded to a precision of 1e-8). For a transaction that uses the USDT asset for the fee, the fee rate (in units/vbyte) multiplied by this number must be greater than or equal to the minimum fee rate (in sat/vbyte) in LBTC applied to policy.
+If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum fee rate required in USDT would be 1/0.00000876 = 114156 units/vbyte (rounded up to the nearest integer). To relay this transaction, a client will determine the fee rate in the USDT asset, multiply it by 0.00000876 to calculate the effective rate and then verify it is greater than or equal to 1 sat/vbyte. 
 
 ===Specification===
 
 ====Issued asset fees====
 
 Accepted assets, rate multipliers (and optional destination) are stored in a vector <code>assetFeeRates</code> of <code>CAssetFeeRate</code> objects.
-This object contains the <code>CAsset</code> asset ID, the <code>int64_t</code> fee rate multiplier and <code>CScript</code> fee destination.
+This object contains the <code>CAsset</code> asset ID, the <code>int64_t</code> fee rate multiplier and optional <code>CScript</code> fee destination.
 
-For each supported issued asset, there is supplied fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code>. This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code> which is then used to determine if this is equal to or greater than the relay and mempool minimums set with policyAsset fee rates. For mempool ordering, the effective fee rate is used for comparison with transactions with policyAsset fee rates. 
-
-The fee rate multiplier is specified as a fixed precision <code>int64_t</code> number <code>issued_asset_fee_rate_multiplier_int64</code> (the number of decimal places supported is specified by the <code>int64_t</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
+For each supported issued asset, there is a specified fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code> (a float). This is represented internally as a fixed precision <code>int64_t</code> number <code>issued_asset_fee_rate_multiplier_int64</code> (the number of decimal places supported is specified by the <code>int64_t</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
 
 <code>
-issued_asset_fee_rate_multiplier_int64 = static_cast<int64_t>(issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR)
+issued_asset_fee_rate_multiplier_int64 = static_cast<int64_t>(std::ceil(issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR))
 </code>
 
-The <code>effective_fee_rate</code> is calculated as follows for any transaction where the fee output is paid in an amount of accepted issued asset:
+This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code>. 
 
 <code>
 effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_int64) / ASSET_MULTIPLIER_SCALE_FACTOR
 </code>
 
-Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize the amount of the issued asset fee output. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. 
+Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize and the amount of the issued asset fee output. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. 
 
 The value of <code>issued_asset_fee_rate_multiplier_int64</code> must be between 1 and <code>MAX_ASSET_MULTIPLIER</code>
 
@@ -80,11 +69,17 @@ By default <code>MAX_ASSET_MULTIPLIER = 10^15</code>. Scaled as a fixed precisio
 
 The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_int64)</code> cannot exceed the maximum allowed value of <code>int64_t</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>std::numeric_limits<uint64_t>::max() / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is 922.3372 LBTC/vbyte). 
 
+To calculate the value of an issued asset fee output required for a transaction of size <code>vsize</code> where the current minimum <code>policyAsset</code> fee rate is <code>policy_asset_rate</code>:
+
+<code>
+fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_int64))
+</code>
+
 The fee asset and rate multiplier can be configured for an individual node with the option:
 
 <code>-setfeeassetrate=<assetID:multiplier-script></code>: set the <code>assetID:multiplier-script</code> applied to relay and mempool policy for this node. 
 
-The multiplier is supplied as a floating point number (<code>issued_asset_fee_rate_multiplier</code>) which is converted to fixed point integer by multiplication with ASSET_MULTIPLIER_SCALE_FACTOR. Optional script to set destination for coinbase fees for each asset. If <code>mandatory_coinbase_destination</code> is set as a consensus rule, then this is not currently possible and will return an error.
+The multiplier is supplied as a floating point number (<code>issued_asset_fee_rate_multiplier</code>) which is converted to fixed point integer by ceiling multiplication with ASSET_MULTIPLIER_SCALE_FACTOR. 
 
 This can be repeated for additional fee assets and rates. The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
 
@@ -94,11 +89,11 @@ A new accepted fee asset can be added on demand at runtime with the RPC, or an e
 
 <code>getassetfeerate</code> get all assetID, multiplier, script applied by this client.
 
-Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssember</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
+Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssembler</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
 
 ====Fee rate publication====
 
-Asset fee rates (and optional destination) encoded in coinbase <code>OP_RETURN</code> as follows:
+Asset fee rates multipliers (and optional destination) encoded in additional coinbase <code>OP_RETURN</code> outputs as follows:
 
 * 4 bytes: <code>AFEE</code>
 * 32 bytes: asset ID
@@ -114,10 +109,10 @@ Config option:
 If <code>n</code> is 0 then fee assets and rate multipliers are not written.
 
 If <code>n</code> > 0 then any accepted assets and fee rates set via RPC or config are published every <code>n</code> blocks.
-Any fee rates updated by <code>setassetfeerate</code> or controller script are not applied to policy until the end of an epoch.
+Any fee rates updated by <code>setassetfeerate</code> or controller script are not applied to policy until the end of an epoch of <code>n</code> blocks.
 
-A new RPC <code>getsignerfeerates</code> retrieves the latest published accepted assets and rate multipliers (cached).
-<code>getassetfeerate</code> has a single boolean argument to either retrieve the latest updated fee rate multipliers, or the rates applied in the current epoch.
+A new RPC <code>getsignerfeerates</code> retrieves the latest published accepted assets and rate multipliers.
+<code>getassetfeerate</code> has a single boolean argument to either retrieve the latest updated list of assets and fee rate multipliers, or the list applied in the current epoch.
 
 On node restart, the cached rates are updated from the latest publication.
 
