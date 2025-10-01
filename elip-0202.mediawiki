@@ -1,10 +1,10 @@
 <pre>
-  ELIP: tbd
+  ELIP: 202
   Layer: Applications
   Title: Optional sidechain peg-in subsidy and minimum peg-in amount
   Author: Byron Hambly <bhambly@blockstream.com>
   Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0tbd
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0202
   Status: Draft
   Type: Standards Track
   Created: 2025-09-01
