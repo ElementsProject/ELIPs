@@ -61,6 +61,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Standards Track
 | Draft
 |- style="background-color: #ffcfcf"
+| [[elip-0152.mediawiki|152]]
+| Wallet
+| Deterministic Wallet ID
+| Leonardo Comandini
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
 | [[elip-0200.mediawiki|200]]
 | Wallet
 | Discounted fees for Confidential Transactions
