@@ -87,6 +87,8 @@ A new accepted fee asset can be added on demand at runtime with the RPC, or an e
 
 <code>updatefeeassetrate</code> add new assetID, multiplier, (optional) destination script to apply to node policy or update the rates of existing configured assets dynamically.
 
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block by a block creator) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_int64</code> for a specific asset may be changed (e.g. via the <code>updatefeeassetrate</code> RPC) while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
+
 <code>getassetfeerate</code> get all assetID, multiplier, script applied by this client.
 
 Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssembler</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
