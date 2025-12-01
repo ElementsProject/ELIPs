@@ -126,6 +126,12 @@ The following CT descriptors yield the given DWIDs on the specified networks:
 ** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0))</code>
 ** DWID: <code>f372-cfc2-51f0-1852-1067-750b-6e63-5d93</code>
 
+* Test Vector 9
+** Description: explicit index 2^31-1
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/2147483647))</code>
+** DWID: <code>b781-7bc7-db64-c3de-3937-7eb7-c9ab-f799</code>
+
 ==Reference Implementation==
 
 Implemented in LWK: https://github.com/blockstream/lwk
