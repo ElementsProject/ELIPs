@@ -42,6 +42,7 @@ This ELIP defines a Deterministic Wallet IDentifier (DWID) that:
 
 Given a CT descriptor <code>DESCRIPTOR</code> as defined in [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP-150] and the network parameters for address generation, the DWID is derived as follows:
 * If the top-level script expression is <code>combo</code>, fail.
+* If the descriptor has at least one hardened derivation step, fail.
 * If <code>DESCRIPTOR</code> is multi-path, resolve to the first single descriptor.<ref>
 Replace <code>/<NUM1;NUM2;...;NUMn></code> with <code>/NUM1</code>.
 This means that descriptors containing <code>/<0;1></code>, <code>/<0;1;2></code> or <code>/0</code> have the same DWID.
