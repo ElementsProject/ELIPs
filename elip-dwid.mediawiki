@@ -45,10 +45,6 @@ Given a CT descriptor <code>DESCRIPTOR</code> as defined in [https://github.com/
 * If the descriptor has at least one hardened derivation step, fail.
 * If <code>DESCRIPTOR</code> is multi-path, resolve to the first single descriptor.<ref>
 Replace <code>/<NUM1;NUM2;...;NUMn></code> with <code>/NUM1</code>.
-This means that descriptors containing <code>/<0;1></code>, <code>/<0;1;2></code> or <code>/0</code> have the same DWID.
-We only use the first path rather than computing a combined identifier from all paths because:
-* it keeps the computation simple and efficient;
-* multi-path descriptors already require special handling and restrictions in wallet software, even for simple cases with <code>/<0;1></code>.
 </ref>
 * If the descriptor has wildcards, derive the definite descriptor at index 2<sup>31</sup>-1.<ref>
 We want to use an address that will not be used in a transaction.
@@ -68,6 +64,34 @@ The probability of a collision is negligible for practical purposes.
 * Format with hyphens every 4 characters.
 
 The resulting DWID has the format <code>xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx</code> where each <code>x</code> is a lowercase hexadecimal digit.
+
+===Limitations===
+Computing a "descriptor ID" requires to deal with several ambiguities.
+This ELIP aims to specify a simple and useful standard, which however has some limitations.
+
+====Multipath====
+Descriptors without multipath can have the same ID as descriptors with (different kind of) multipath.
+For instance descriptors where <code>/0</code> is replaced by <code>/<0;1></code> or <code>/<0;1;2></code> have the same DWID.
+
+We only use the first path rather than computing a combined identifier from all paths because:
+* it keeps the computation simple and efficient;
+* multipath descriptors already require special handling and restrictions in wallet software, even for simple cases with <code>/<0;1></code>.
+
+====Explicit Index 2<sup>31</sup>-1====
+Descriptors with a wildcard can have the same ID as descriptor where the wildcard is replaced by the explicit index 2<sup>31</sup>-1.
+
+====Equivalent Keys====
+In this ELIP we consider two descriptors equivalent if they yield to the same addresses.
+However descriptors can include additional information about how keys have been derived and how they can be used for signing:
+* Keys can have keyorigin data
+* Single keys can be replaced by BIP32 extended keys
+* Public keys can be replaced by private keys
+* Explicit keys can be replaced by `musig` expressions (not yet available)
+
+Despite this information is a crucial portion of the descriptor, as it is often required by wallet software to sign transactions, it is ignored for the DWID computation.
+
+====Hardened Steps====
+Descriptors with hardended steps (including hardened wildcards <code>/*h</code>) requires access to secret key data to derive addresses. To simplify DWID computation we disallow these descriptors. However it's still possible to convert such descriptors to equivalent ones without hardened steps and compute the DWID.
 
 ==Test Vectors==
 
@@ -141,4 +165,4 @@ Implemented in LWK: https://github.com/blockstream/lwk
 <references />
 
 ==Acknowledgments==
-We would like to thank Riccardo Casatta for the help in defining and implementing determistic wallet ids in LWK.
+We would like to thank Riccardo Casatta for the help in defining and implementing determistic wallet ids in LWK and Andrew Poelstra for the suggestions for the limitations section.
