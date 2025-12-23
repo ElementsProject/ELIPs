@@ -35,11 +35,11 @@ Removing the <code>MoneyRange</code> check for non-Bitcoin assets from the funct
 
 To enable the explicit issuance and reissuance of assets other than the <code>pegged_asset</code> with values greater than <code>MAX_MONEY</code> (21 million) the <code>MoneyRange</code> check for explicit values in the <code>VerifyIssuanceAmount</code> consensus rule will be modified to only apply when the <code>asset</code> is <code>pegged_asset</code>. 
 
-To enable the inclusion of this consensus rule change in Elements releases without risking a network fork, a new policy rule preventing the explicit issuance and reissuance of assets (and reissuance tokens) with values greater than <code>MAX_MONEY</code> before the the technical consensus hard fork is activated. This policy rule will be configurable but applied as default in all releases until the hard fork activation. 
+To enable the deployment of this consensus rule change in Elements releases without risking a chain fork, a new policy rule to enable functionaries to prevent confirmation of explicit issuance and reissuance with values greater than <code>MAX_MONEY</code> is required. This policy rule will be configurable but applied as default in all releases until the network has updated. 
 
 ===Drawbacks===
 
-Enabling this feature requires a hard-fork, which has to be carefully coordinated and has the potential to cause disruption. To mitigate this disruption, new releases of Elements before the hard-fork activation can include the consensus changes to <code>VerifyIssuanceAmount</code> but any issuance/reissuance transactions that would trigger a network fork will be prevented from being included in a block with the new default policy rule. 
+Enabling this feature requires a hard-fork, which has to be carefully coordinated and has the potential to cause disruption. To mitigate this disruption, new releases of Elements can include the consensus changes to <code>VerifyIssuanceAmount</code> but any issuance/reissuance transactions that would trigger a chain fork will be prevented from being included in a block with the new default policy rule applied by the functionaries. 
 
 ===Specification===
 
