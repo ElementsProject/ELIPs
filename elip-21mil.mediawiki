@@ -1,7 +1,7 @@
 <pre>
   ELIP: ???
   Layer: Consensus
-  Title: Unblinded asset issuance over 21 million
+  Title: Explicit asset issuance over 21 million
   Author: Tom Trevethan <ttrevethan@blockstream.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
@@ -15,7 +15,7 @@
 
 ===Abstract===
 
-This document proposes a change to Elements to allow the unblinded issuance and reissuance of assets in amounts greater than the <code>MAX_MONEY</code> parameter (21 million). This is a hard-forking change, however functionaries will not relay or confirm transactions with explicit issuances or reissuances greater than <code>MAX_MONEY</code> until the network has updated, preventing a chain split. This requires a new policy rule that will be enabled by default, and then disabled when the network upgrades. 
+This document proposes a change to Elements to allow the explicit issuance and reissuance of assets in amounts greater than the <code>MAX_MONEY</code> parameter (21 million). This is a hard-forking change, however functionaries will not relay or confirm transactions with explicit issuances or reissuances greater than <code>MAX_MONEY</code> until the network has updated, preventing a chain split. This requires a new policy rule that will be enabled by default, and then disabled when the network upgrades. 
 
 ===Copyright===
 
@@ -23,17 +23,19 @@ This document is licensed under the 3-clause BSD license.
 
 ===Motivation===
 
-An important feature of the Elements platform is Confidential Assets, that enable any user to create tokens that represent external assets that can be transacted with strong privacy guarantees. Assets can be created in a special issuance transaction which also (optionally) creates a <code>reissuance_token</code> that enables additional issuances of the same original asset type. Both initial asset issuances and reissuances can be either blinded or unblinded, irrespective of whether further transfers of the asset are confidential. In a fully blinded issuance, the value (amount) of the issuance (and the reissuance token) remains hidden, however in an unblinded issuance (and reissuance) the amount of asset created is publicly verifiable. There are many situations where an unblinded issuance is needed, including for example transparency and legal requirements. 
+Issued Assets enable any user to create tokens that represent external assets that can be transacted with strong privacy guarantees (with Confidential Transactions). Both initial asset issuances and reissuances can be either blinded or explicit, irrespective of whether further transfers of the asset are confidential. There are many situations where an explicit issuance is needed, including for example transparency and legal requirements. 
 
-In the existing Elements consensus rules, in the function <code>VerifyIssuanceAmount</code> the value of an asset created is required to satisfy <code>MoneyRange(value)</code> (i.e. between zero and <code>MAX_MONEY</code>) if the value is explicit (unblinded). This check should only be required to apply to the <code>pegged_asset</code> which can never exceed <code>MAX_MONEY</code> (21 million bitcoin). To enable unblinded asset issuances greater than <code>MAX_MONEY</code> (which may be required for any non-bitcoin asset) this consensus rule needs to be changed to only apply the <code>MoneyRange(value)</code> check only to the <code>pegged_asset</code>. 
+In Elements, explicit asset issuances and reissuances are required to satisfy <code>MoneyRange(value)</code> (i.e. value between zero and <code>MAX_MONEY</code>), however this should only be required to apply to the <code>pegged_asset</code> (21 million bitcoin). This restriction should not apply to non-Bitcoin asset issuances. 
+
+Removing the <code>MoneyRange</code> check for non-Bitcoin assets from the function <code>VerifyIssuanceAmount</code> will enable explicit asset issuances and reissuances greater than <code>MAX_MONEY</code>. Explicit (non-confidential) outputs (including fee outputs) will keep the <code>MoneyRange</code> check as this ELIP is to specifically cover explicit issuances. 
 
 ==Design==
 
 ===Overview===
 
-To enable the unblinded issuance and reissuance of assets other than the <code>pegged_asset</code> with values greater than <code>MAX_MONEY</code> (21 million) the <code>MoneyRange</code> check for explicit values in the <code>VerifyIssuanceAmount</code> consensus rule will be modified to only apply when the <code>asset</code> is <code>pegged_asset</code>. 
+To enable the explicit issuance and reissuance of assets other than the <code>pegged_asset</code> with values greater than <code>MAX_MONEY</code> (21 million) the <code>MoneyRange</code> check for explicit values in the <code>VerifyIssuanceAmount</code> consensus rule will be modified to only apply when the <code>asset</code> is <code>pegged_asset</code>. 
 
-To enable the inclusion of this consensus rule change in Elements releases without risking a network fork, a new policy rule preventing the unblinded issuance and reissuance of assets (and reissuance tokens) with values greater than <code>MAX_MONEY</code> before the the technical consensus hard fork is activated. This policy rule will be configurable but applied as default in all releases until the hard fork activation. 
+To enable the inclusion of this consensus rule change in Elements releases without risking a network fork, a new policy rule preventing the explicit issuance and reissuance of assets (and reissuance tokens) with values greater than <code>MAX_MONEY</code> before the the technical consensus hard fork is activated. This policy rule will be configurable but applied as default in all releases until the hard fork activation. 
 
 ===Drawbacks===
 
@@ -49,7 +51,7 @@ A new function <code>IsIssuanceInMoneyRange(tx)</code> returns true if a transac
 
 ==Backwards Compatibility==
 
-The change to <code>VerifyIssuanceAmount</code> enabling unblinded issuances greater than 21 million is a consensus hard fork, however the <code>fAcceptUnlimitedIssuances</code> with default false will prevent any transaction that would cause a block to be invalid to older, unupgraded nodes. When a node is configured with <code>-acceptunlimitedissuances=1</code> it can potentially create blocks (by including issuance transactions) that would be invalid to unupgraded nodes. 
+The change to <code>VerifyIssuanceAmount</code> enabling explicit issuances greater than 21 million is a consensus hard fork, however the <code>fAcceptUnlimitedIssuances</code> with default false will prevent any transaction that would cause a block to be invalid to older, unupgraded nodes. When a node is configured with <code>-acceptunlimitedissuances=1</code> it can potentially create blocks (by including issuance transactions) that would be invalid to unupgraded nodes. 
 
 ==Reference Implementation==
 
