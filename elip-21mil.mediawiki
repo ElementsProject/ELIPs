@@ -15,7 +15,7 @@
 
 ===Abstract===
 
-This document proposes a change to Elements to allow the unblinded issuance and reissuance of assets in amounts greater than the <code>MAX_MONEY</code> parameter (21 million) that is currently prevented. This is a hard-forking change, but can be safely released when combined with a new default policy config option that can prevent unblinded issuance transactions with amoutns greater than <code>MAX_MONEY</code> from being relayed and confirmed in blocks. 
+This document proposes a change to Elements to allow the unblinded issuance and reissuance of assets in amounts greater than the <code>MAX_MONEY</code> parameter (21 million). This is a hard-forking change, however functionaries will not relay or confirm transactions with explicit issuances or reissuances greater than <code>MAX_MONEY</code> until the network has updated, preventing a chain split. This requires a new policy rule that will be enabled by default, and then disabled when the network upgrades. 
 
 ===Copyright===
 
