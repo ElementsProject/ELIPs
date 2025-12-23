@@ -45,7 +45,7 @@ Enabling this feature requires a hard-fork, which has to be carefully coordinate
 
 In the function <code>VerifyIssuanceAmount</code> where <code>value</code> is explicit, the value is only checked for <code>MoneyRange(value)</code> when the <code>asset</code> is equal to the consensus parameter <code>pegged_asset</code>. 
 
-A new function <code>IsIssuanceInMoneyRange(tx)</code> returns true if a transaction has explicit issuance and reissuance values (and reissuance token values) are within <code>MoneyRange(value)</code>, otherwise false. This function is evaluated for transactions in <code>MemPoolAccept</code> if <code>fAcceptUnlimitedIssuances</code> is false. If this function returns false, the transaction is rejected with error message: <code>"issuance-out-of-range""</code>. 
+A new function <code>IsIssuanceInMoneyRange(tx)</code> returns true if a transaction has explicit issuance and reissuance values (and reissuance token values) are within <code>MoneyRange(value)</code>, otherwise false. This function is evaluated for transactions in <code>MemPoolAccept</code> if <code>fAcceptUnlimitedIssuances</code> is false. If this function returns false, the transaction is rejected with error message: <code>"issuance-out-of-range"</code>. 
 
 <code>fAcceptUnlimitedIssuances</code> is set to false by default, but can be set to true with the new config option <code>-acceptunlimitedissuances=1</code>
 
