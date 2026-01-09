@@ -118,16 +118,15 @@ On node restart, the cached rates are updated from the latest publication.
 
 ====Controller fee asset rate updates====
 
-Feature for issued asset fees that enables an external controller to set issued asset fee policy via an onchain transaction, with asset fee rate multipliers encoded in <code>OP_RETURN</code> outputs.
-Any node can be configured to apply issued asset fee policy that is set by a controller (this does not need to be a single entity, but can be defined by any multisig script). This is set with a config option:
+Feature that enables an external controller to set issued asset fee policy via an onchain transaction, with asset fee rate multipliers encoded in <code>OP_RETURN</code> outputs. 
 
-<code>-confeeassetrate=scriptPubKey</code>
+Any node can be configured to apply issued asset fee policy that is set by an external controller. This controller may be a single entity or several different entities which is given the authority to set fee policy. A node is then configured with the <code>scriptPubKey</code> that the controller (or multiple controllers, via a multisig script) can generate a valid witness for. 
 
-where <code>scriptPubKey</code> is the script that is used by the controller(s) to set the asset and rate multipliers in a transaction.
-<code>-conassetfeerate</code> cannot be set at the same time as <code>-setassetfeerate</code> (this will generate an error).
-A valid controller transaction must spend from an output where the <code>scriptPubKey</code> is also the same controller script (this is used as an authentication mechanism).
+A valid controller transaction is defined by:
 
-The format for the <code>OP_RETURN</code> encoding is that same as that used for the fee rate publication.
+1. The first output being the specified controller <code>scriptPubKey</code>
+2. It spends from an output with the same specified controller <code>scriptPubKey</code> (this authenticates the transaction). 
+3. The other outputs are <code>OP_RETURN</code> with each having a fee asset and rate multiplier (encoding is that same as that used for the fee rate publication). 
 
 ==Backwards Compatibility==
 
