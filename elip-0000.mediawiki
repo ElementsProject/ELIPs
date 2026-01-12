@@ -44,37 +44,37 @@ If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum f
 
 ====Issued asset fees====
 
-For each supported issued asset, there is a specified fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code> (a float). This is represented internally as a fixed precision <code>int64_t</code> number <code>issued_asset_fee_rate_multiplier_int64</code> (the number of decimal places supported is specified by the <code>int64_t</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
+For each supported issued asset, there is a specified fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code> (a float). This is represented internally as a fixed precision <code>u64</code> (using Rust syntax) number <code>issued_asset_fee_rate_multiplier_u64</code> (the number of decimal places supported is specified by the <code>u64</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
 
 <code>
-issued_asset_fee_rate_multiplier_int64 = static_cast<int64_t>(std::ceil(issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR))
+issued_asset_fee_rate_multiplier_u64: u64 = ((issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR).ceil() as u64);
 </code>
 
 This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code>. 
 
 <code>
-effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_int64) / ASSET_MULTIPLIER_SCALE_FACTOR
+effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_u64) / ASSET_MULTIPLIER_SCALE_FACTOR
 </code>
 
 Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize and the amount of the issued asset fee output. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. 
 
-The value of <code>issued_asset_fee_rate_multiplier_int64</code> must be between 1 and <code>MAX_ASSET_MULTIPLIER</code>
+The value of <code>issued_asset_fee_rate_multiplier_u64</code> must be between 1 and <code>MAX_ASSET_MULTIPLIER</code>
 
 By default <code>MAX_ASSET_MULTIPLIER = 10^15</code>. Scaled as a fixed precision number, this enables values of <code>issued_asset_fee_rate_multiplier</code> between 0.00000001 and 10,000,000. 
 
-The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_int64)</code> cannot exceed the maximum allowed value of <code>int64_t</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>std::numeric_limits<uint64_t>::max() / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is 922.3372 LBTC/vbyte). 
+The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_u64)</code> cannot exceed the maximum allowed value of <code>u64::MAX</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>u64::MAX / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is equivalent to 922.3372 LBTC/vbyte). 
 
 To calculate the value of an issued asset fee output required for a transaction of size <code>vsize</code> where the current minimum <code>policyAsset</code> fee rate is <code>policy_asset_rate</code>:
 
 <code>
-fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_int64))
+fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_u64))
 </code>
 
 The minimum and maximum possible values of the fee rate multiplier limit the relative values of assets that can be used for fees, and as the multiplier gets closer to its minimum value the rounding rules will cause larger inaccuracies in the relative fees charged. 
 
 Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
 
-Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_int64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
 
 Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssembler</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
 
@@ -86,7 +86,7 @@ Asset fee rates multipliers (and an optional destination) may be encoded in addi
 
 * 4 bytes: <code>AFEE</code>
 * 32 bytes: asset ID
-* 16 bytes: fee rate multiplier (uint_64 encoded)
+* 16 bytes: fee rate multiplier (u64 encoded)
 * (up to) 35 bytes: fee destination script
 
 Nodes can be configured to perform this publication either every block, or every <code>n</code> blocks. 
