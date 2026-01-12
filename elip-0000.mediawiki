@@ -33,7 +33,7 @@ In order for wallets and users to know which assets are being accepted by block 
 
 ===Overview===
 
-Each node has complete control over which assets and at what fee rates to accept as policy. However, in practice all block creators and relaying nodes should agree to apply the same asset fee policy in order to provide a reliable service for users. The assets and fee rates accepted by any node can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or this can be set dynamically at runtime via a new RPC. In addition, a new RPC will be added to query the current assets, rate multiplier (and destinations) currently being applied to policy by any node.
+Each node has complete control over which assets and at what fee rates to accept as policy. However, in practice all block creators and relaying nodes should agree to apply the same asset fee policy in order to provide a reliable service for users. The assets and fee rates accepted by any node can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or this can be set dynamically at runtime. 
 
 For fee outputs in an issued asset, the fee rate (in units/vbyte) will be scaled to determine an 'effective rate'. This effective rate is then used in place of the <code>policyAsset</code> fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
 
@@ -73,48 +73,26 @@ To calculate the value of an issued asset fee output required for a transaction 
 fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_int64))
 </code>
 
-The fee asset and rate multiplier can be configured for an individual node with the option:
+Nodes can be configured for one or more issued asset fee multipliers. The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
 
-<code>-setfeeassetrate=<assetID:multiplier-script></code>: set the <code>assetID:multiplier-script</code> applied to relay and mempool policy for this node. 
-
-The multiplier is supplied as a floating point number (<code>issued_asset_fee_rate_multiplier</code>) which is converted to fixed point integer by ceiling multiplication with ASSET_MULTIPLIER_SCALE_FACTOR. 
-
-This can be repeated for additional fee assets and rates. The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
-
-A new accepted fee asset can be added on demand at runtime with the RPC, or an existing asset updated with:
-
-<code>updatefeeassetrate</code> add new assetID, multiplier, (optional) destination script to apply to node policy or update the rates of existing configured assets dynamically.
-
-Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block by a block creator) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_int64</code> for a specific asset may be changed (e.g. via the <code>updatefeeassetrate</code> RPC) while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
-
-<code>getassetfeerate</code> get all assetID, multiplier, script applied by this client.
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_int64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
 
 Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssembler</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
 
 ====Fee rate publication====
 
-Asset fee rates multipliers (and optional destination) encoded in additional coinbase <code>OP_RETURN</code> outputs as follows:
+Nodes can optionally be configured to include the issued assets and multipliers they are accepting for fees in blocks they produce in order to publicize these to wallets and other users. 
+
+Asset fee rates multipliers (and an optional destination) may be encoded in additional coinbase <code>OP_RETURN</code> outputs (one output per asset) as follows:
 
 * 4 bytes: <code>AFEE</code>
 * 32 bytes: asset ID
 * 16 bytes: fee rate multiplier (uint_64 encoded)
 * (up to) 35 bytes: fee destination script
 
-The maximum number of additional outputs is limited to <code>MAX_ISSUED_ASSET_FEE_SIZE</code>. The maximum size for transactions included in a generated block must be reduced by the additional space taken by the additional coinbase outputs.
+Nodes can be configured to perform this publication either every block, or every <code>n</code> blocks. 
 
-Config option:
-
-<code>-writefeeassetrate=n</code> Write issued asset fee rate multipliers accepted as policy to the coinbase of created blocks with interval <code>n</code> (default: 0).
-
-If <code>n</code> is 0 then fee assets and rate multipliers are not written.
-
-If <code>n</code> > 0 then any accepted assets and fee rates set via RPC or config are published every <code>n</code> blocks.
-Any fee rates updated by <code>setassetfeerate</code> or controller script are not applied to policy until the end of an epoch of <code>n</code> blocks.
-
-A new RPC <code>getsignerfeerates</code> retrieves the latest published accepted assets and rate multipliers.
-<code>getassetfeerate</code> has a single boolean argument to either retrieve the latest updated list of assets and fee rate multipliers, or the list applied in the current epoch.
-
-On node restart, the cached rates are updated from the latest publication.
+A new RPC can be added to retrieve the latest assets and multipliers for use by wallets. 
 
 ====Controller fee asset rate updates====
 
@@ -136,11 +114,9 @@ No issues for backwards compatibility - all existing transactions with policy as
 
 * Configure issued asset with fee rate of <code>issued_asset_fee_rate_multiplier = 0.5</code>
 
-<pre>-setfeeassetrate=e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0:0.5</pre>
+<pre>asset: e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0</pre>
 
 * Get configured fee asset rates
-
-<pre>getassetfeerate</pre>
 
 Result:
 
@@ -154,13 +130,11 @@ Result:
 
 <pre>0200000001016f90831e415a738df732b62dd0b76e87bbe489096e43c892bf3dcbbfd173778d0000000000feffffff0301a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002faf08000160014c5439a67eaa99a308719b544f327a942ae02e6a701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002f967de0016001467c8c91e8357e1e24d1721c4535a99608e47beb701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee801000000000000020200006c0000000000024730440220031c1aa256e40a89cf622374e1ef281870a6abb6f588411800fe885f5195a49e02204f3c37cfe2318db87ac7ce4d7da70682e3477653f6222383ab72ea259a3b1fae0121029896a2fe9c710b8b71488b90038d3974144dc21c9c8750459162dc37d141459300000000000000</pre>
 
-* Update issued asset fee rate multiplier to 0.1 with RPC
+* Update issued asset fee rate multiplier to 0.1
 
-<pre>updatefeeassetrate e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0 0.1</pre>
+<pre>asset: e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0</pre>
 
 * Get configured fee asset rates
-
-<pre>getassetfeerates</pre>
 
 Result:
 
@@ -176,10 +150,8 @@ Result:
 
 * Configuration for fee asset rate publication:
 
-<pre>-writefeeassetrate=100</pre>
-
-<pre>updatefeeassetrate b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22 1.86</pre>
-<pre>updatefeeassetrate af6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3 3.781</pre>
+<pre>asset: b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22 multiplier: 1.86</pre>
+<pre>asset: af6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3 multiplier: 3.781</pre>
 
 Coinbase transaction:
 
@@ -201,10 +173,6 @@ controller_addr = "ert1qt9ttcpchjy54hl23v8wmwu922d3gnvlrz7sqx7"
 private_key = "cP3N3Z3rMTo4L2gNRDWmzo8nGNyVNnWwFX9DRVPqwcPnMWE8Rn33"
 </pre>
 
-Configuration
-
-<pre>-confeeassetrate=00145956bc071791295bfd5161ddb770aa536289b3e3</pre>
-
 Fee Asset setting:
 
 <pre>asset_id = b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22</pre>
@@ -219,7 +187,7 @@ Controller transaction:
 
 <pre>020000000001500d712c870c96c0bec05f41d765f4f5f203bd8d5b7ea6ef333b53b8c2c2d164000000006a47304402207f1b2c580ee052b8d0da06a139cd1e910ec93c8b11585d692646e6267b8354c4022045caab622e3adbae204263dfdc86e341fd9f3c013cbf2234fdea2c8ee2ba0d81012103ba4a2b1f401eb59e1e6b104f8043ce41b38b65bd24c10edb3df8863b0241e5afffffffff0301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000012a046b60001600145956bc071791295bfd5161ddb770aa536289b3e301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000005f5e10001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b20100000000000186a0000000000000</pre>
 
-<pre>getassetfeerate</pre>
+Get asset and multiplier:
 
 <pre>[{'asset': 'b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22', 'rate': 1, 'script': ''}]</pre>
 
