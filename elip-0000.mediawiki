@@ -76,7 +76,7 @@ The minimum and maximum possible values of the fee rate multiplier limit the rel
 
 Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code>.
 
-Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee is in an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is policyAsset) or the <code>effective_fee_rate</code> if the fee is in an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
 
 Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
 
@@ -106,6 +106,10 @@ A valid controller transaction is defined by:
 1. The first output being the specified controller <code>scriptPubKey</code>
 2. It spends from an output with the same specified controller <code>scriptPubKey</code> (this authenticates the transaction). 
 3. The other outputs are <code>OP_RETURN</code> with each having a fee asset and rate multiplier (encoding is that same as that used for the fee rate publication). 
+
+A node can be configured with both explicit assets and multipliers and a controller <code>scriptPubKey</code>. An asset and multiplier encoded in a valid controller transaction overrides any previously set and explicitly configured multipliers. 
+
+Controller transactions become valid after 2 confirmations, and if there is more than one controller transaction in a block, they are applied in the sequence of the block verification. 
 
 ==Backwards Compatibility==
 
