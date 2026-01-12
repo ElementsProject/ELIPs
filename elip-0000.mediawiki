@@ -44,9 +44,6 @@ If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum f
 
 ====Issued asset fees====
 
-Accepted assets, rate multipliers (and optional destination) are stored in a vector <code>assetFeeRates</code> of <code>CAssetFeeRate</code> objects.
-This object contains the <code>CAsset</code> asset ID, the <code>int64_t</code> fee rate multiplier and optional <code>CScript</code> fee destination.
-
 For each supported issued asset, there is a specified fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code> (a float). This is represented internally as a fixed precision <code>int64_t</code> number <code>issued_asset_fee_rate_multiplier_int64</code> (the number of decimal places supported is specified by the <code>int64_t</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
 
 <code>
@@ -73,7 +70,7 @@ To calculate the value of an issued asset fee output required for a transaction 
 fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_int64))
 </code>
 
-Nodes can be configured for one or more issued asset fee multipliers. The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
+Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
 
 Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_int64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
 
