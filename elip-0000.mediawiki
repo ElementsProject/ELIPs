@@ -23,7 +23,7 @@ This document is licensed under the 3-clause BSD license.
 
 ===Motivation===
 
-Current policy rules for mempool acceptance and relay require that the <code>assetID</code> of the transaction fee output is the <code>policyAsset</code>. The consensus rules however allow for any <code>assetID</code> to be used for the fee asset (so long as the transaction is otherwise valid). The current restriction limits the usefulness of the Elements platform for transacting in issued assets, as <code>policyAsset</code> must be obtained before being able to transact. Block creators may choose to accept fee payments in other assets that have value, at specified exchange rates. 
+Current policy rules for mempool acceptance and relay require that the <code>assetID</code> of the transaction fee is the <code>policyAsset</code>. The consensus rules however allow for any <code>assetID</code> to be used for the fee asset (so long as the transaction is otherwise valid). The current restriction limits the usefulness of the Elements platform for transacting in issued assets, as <code>policyAsset</code> must be obtained before being able to transact. Block creators may choose to accept fee payments in other assets that have value, at specified exchange rates. 
 
 Block creators can configure individual nodes explicitly with accepted assets for fees and rates, but to enable a federation to be managed with consistent fee policy (which may require frequent changes), a method to perform this configuration remotely via an on-chain transaction is also required. Individual nodes can then be configured with a 'controller' script that enables changes to the fee asset policy without requiring direct configuration of individual nodes. 
 
@@ -35,10 +35,10 @@ In order for wallets and users to know which assets are being accepted by block 
 
 Each node has complete control over which assets and at what fee rates to accept as policy. However, in practice all block creators and relaying nodes should agree to apply the same asset fee policy in order to provide a reliable service for users. The assets and fee rates accepted by any node can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or this can be set dynamically at runtime. 
 
-For fee outputs in an issued asset, the fee rate (in units/vbyte) will be scaled to determine an 'effective rate'. This effective rate is then used in place of the <code>policyAsset</code> fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
+For fees in an issued asset, the fee rate (in units/vbyte) will be scaled to determine an 'effective rate'. This effective rate is then used in place of the <code>policyAsset</code> fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
 
 E.g. An issued asset is USDT. The current accepted exchange rate between USDT and LBTC (the policyAsset) is $114,171.23 to 1 LBTC. The issued asset fee rate multiplier for this ratio is then set to 1/114,171.23 = 0.00000876 (rounded to a precision of 1e-8). For a transaction that uses the USDT asset for the fee, the fee rate (in units/vbyte) multiplied by this number must be greater than or equal to the minimum fee rate (in sat/vbyte) in LBTC applied to policy.
-If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum fee rate required in USDT would be 1/0.00000876 = 114156 units/vbyte (rounded up to the nearest integer). To relay this transaction, a client will determine the fee rate in the USDT asset, multiply it by 0.00000876 to calculate the effective rate and then verify it is greater than or equal to 1 sat/vbyte. 
+If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum fee rate required in USDT would be 1/0.00000876 = 114156 units/vbyte (rounded up to the nearest integer). To relay this transaction, a node will determine the fee rate in the USDT asset, multiply it by 0.00000876 to calculate the effective rate and then verify it is greater than or equal to 1 sat/vbyte. 
 
 ===Specification===
 
@@ -56,15 +56,15 @@ This value scales the calculated the fee rate of a transaction that has an issue
 effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_u64) / ASSET_MULTIPLIER_SCALE_FACTOR
 </code>
 
-Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize and the amount of the issued asset fee output. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. 
+Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize and the amount of the issued asset fee. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. In the case a transaction has fees paid in more than one asset type, the <code>effective_fee_rate</code> is computed for the total fee of each asset type and then summed together. 
 
 The value of <code>issued_asset_fee_rate_multiplier_u64</code> must be between 1 and <code>MAX_ASSET_MULTIPLIER</code>
 
 By default <code>MAX_ASSET_MULTIPLIER = 10^15</code>. Scaled as a fixed precision number, this enables values of <code>issued_asset_fee_rate_multiplier</code> between 0.00000001 and 10,000,000. 
 
-The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_u64)</code> cannot exceed the maximum allowed value of <code>u64::MAX</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>u64::MAX / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is equivalent to 922.3372 LBTC/vbyte). 
+The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_u64)</code> cannot exceed the maximum allowed value of <code>u64</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>u64::MAX / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is equivalent to 922.3372 LBTC/vbyte). 
 
-To calculate the value of an issued asset fee output required for a transaction of size <code>vsize</code> where the current minimum <code>policyAsset</code> fee rate is <code>policy_asset_rate</code>:
+To calculate the value of an issued asset fee required for a transaction of size <code>vsize</code> where the current minimum <code>policyAsset</code> fee rate is <code>policy_asset_rate</code>:
 
 <code>
 fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_u64))
@@ -72,11 +72,11 @@ fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / i
 
 The minimum and maximum possible values of the fee rate multiplier limit the relative values of assets that can be used for fees, and as the multiplier gets closer to its minimum value the rounding rules will cause larger inaccuracies in the relative fees charged. 
 
-Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code> (default 10).
+Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code>.
 
-Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee output is an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is `policyAsset`) or the <code>effective_fee_rate</code> if the fee is in an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If an fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
 
-Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently in <code>BlockAssembler</code> the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
+Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
 
 ====Fee rate publication====
 
