@@ -91,7 +91,7 @@ Asset fee rates multipliers (and an optional destination) may be encoded in addi
 
 Nodes can be configured to perform this publication either every block, or every <code>n</code> blocks. 
 
-A new RPC can be added to retrieve the latest assets and multipliers for use by wallets. 
+A new RPC can be added to retrieve the latest assets and multipliers for use by wallets. Wallets need to wait until initial block download is complete before retrieving the latest multipliers to avoid using incorrect fee rates. 
 
 ====Controller fee asset rate updates====
 
