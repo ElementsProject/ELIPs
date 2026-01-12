@@ -29,6 +29,8 @@ Block creators can configure individual nodes explicitly with accepted assets fo
 
 In order for wallets and users to know which assets are being accepted by block creators for fees and at what rates, the block creators can publish this information in the coinbase of blocks they produce. This removes the requirement for separate servers to publish and relay this data. 
 
+The controller feature is independent of the fee rate publication feature: the controller can remotely set the fee assets and multipliers to be used as policy by the block signers. The block signers can then publish the assets and multipliers being used (however they are set) for users/wallets. 
+
 ==Design==
 
 ===Overview===
@@ -95,7 +97,7 @@ A new RPC can be added to retrieve the latest assets and multipliers for use by 
 
 ====Controller fee asset rate updates====
 
-Feature that enables an external controller to set issued asset fee policy via an onchain transaction, with asset fee rate multipliers encoded in <code>OP_RETURN</code> outputs. 
+This enables an external controller to set issued asset fee policy for a federation via an onchain transaction, with asset fee rate multipliers encoded in <code>OP_RETURN</code> outputs. 
 
 Any node can be configured to apply issued asset fee policy that is set by an external controller. This controller may be a single entity or several different entities which is given the authority to set fee policy. A node is then configured with the <code>scriptPubKey</code> that the controller (or multiple controllers, via a multisig script) can generate a valid witness for. 
 
