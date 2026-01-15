@@ -1,5 +1,5 @@
 <pre>
-  ELIP: XXX
+  ELIP: 144
   Layer: Wallets
   Title: Account and Asset Identification on the Liquid Network
   Author: [Riccardo Casatta] <riccardo@blockstream.com>
@@ -65,27 +65,27 @@ Following CAIP-19, the asset ID for Liquid Network is defined as:
 asset_id:          chain_id + "/" + asset_namespace + ":" + asset_reference
 chain_id:          "bip122:" + reference
 reference:         First 32 characters of the network's genesis block hash
-asset_namespace:   "elipXXX"
+asset_namespace:   "elip144"
 asset_reference:   Asset's hex identifier on the Liquid Network
 </pre>
 
 Where:
 * For Liquid Network: chain_id = "bip122:1466275836220db2944ca059a3a10ef6"
 * For Liquid Testnet: chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"
-* asset_namespace = "elipXXX" (defined in this ELIP)
+* asset_namespace = "elip144" (defined in this ELIP)
 * asset_reference = hexadecimal representation of the Liquid asset ID
 
 Example Asset IDs:
-* L-BTC (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
-* Tether USDt (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
-* tL-BTC (Liquid Testnet): "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elipXXX:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+* L-BTC (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elip144:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+* Tether USDt (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elip144:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* tL-BTC (Liquid Testnet): "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elip144:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
 
 Note: This specification replaces the previously suggested [slip44](https://github.com/satoshilabs/slips/blob/master/slip-0044.md) namespace for Liquid assets, as the slip44 namespace can represent only the policy asset (Liquid BTC) and cannot represent the variety of assets on the Liquid Network.
 
 ===Use Cases===
 
 The asset ID specification allows for recognition of the same asset across different blockchains. For example:
-* Tether USDt on Liquid: "bip122:1466275836220db2944ca059a3a10ef6/elipXXX:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* Tether USDt on Liquid: "bip122:1466275836220db2944ca059a3a10ef6/elip144:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
 * Tether USDt on Ethereum: "eip155:1/erc20:0xdac17f958d2ee523a2206206994597c13d831ec7"
 
 Applications can use these identifiers to recognize that these assets represent the same underlying value, facilitating cross-chain operations.
