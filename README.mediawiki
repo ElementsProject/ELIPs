@@ -47,6 +47,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Standards Track
 | Draft
 |- style="background-color: #ffcfcf"
+| [[elip-0144.mediawiki|144]]
+| Wallet
+| Account and Asset Identification on the Liquid Network
+| Riccardo Casatta
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
 | [[elip-0150.mediawiki|150]]
 | Wallet
 | CT Descriptors for Elements

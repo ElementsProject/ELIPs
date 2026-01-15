@@ -1,0 +1,96 @@
+<pre>
+  ELIP: 144
+  Layer: Wallets
+  Title: Account and Asset Identification on the Liquid Network
+  Author: [Riccardo Casatta] <riccardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-03-07
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document defines the account ID and asset ID specifications for the Liquid Network to enable interoperability with chain-agnostic wallet connection protocols.
+These specifications are based on the Chain Agnostic Improvement Proposals (CAIPs), specifically [CAIP-10](https://chainagnostic.org/CAIPs/caip-10) for account identification and [CAIP-19](https://chainagnostic.org/CAIPs/caip-19) for asset identification, 
+adapted to the UTXO model of the Liquid Network.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Currently, there is no standardized method for identifying accounts and assets on the Liquid Network.
+This lack of standardization impedes Liquid's integration with wallet connection protocols and cross-chain applications.
+
+This ELIP aims to establish a standardized approach for representing Liquid Network accounts and assets in a way that is compatible with existing chain-agnostic standards, 
+thereby enabling integration with wallet connection protocols.
+
+==Specification==
+
+===Account ID Specification===
+
+Following CAIP-10, the account ID for Liquid Network is defined as:
+
+<pre>
+account_id:        chain_id + ":" + dwid
+chain_id:          "bip122:" + reference
+reference:         First 32 characters of the network's genesis block hash
+dwid:              Deterministic Wallet IDentifier (DWID) as defined in [https://github.com/ElementsProject/ELIPs/blob/main/elip-0152.mediawiki ELIP-152]
+</pre>
+
+Where:
+* For Liquid Network: chain_id = "bip122:1466275836220db2944ca059a3a10ef6"
+* For Liquid Testnet: chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"
+* For Liquid Regtest (default): chain_id = "bip122:cc2641af46f536fba45aab6016f63e12"
+
+The DWID is derived from the CT descriptor as specified in ELIP-152.
+Note that in the UTXO model this isn't a proper address where someone can send funds to, which avoids address reuse and prevents leaking information about the wallet.
+
+Example Account IDs:
+* Liquid : "bip122:1466275836220db2944ca059a3a10ef6:d41f-fe12-4da1-28d5-9449-5e49-d3f4-42ca"
+* Liquid Testnet: "bip122:a771da8e52ee6ad581ed1e9a99825e5b:2cb9-6c92-93b8-1f96-0c3f-afc7-9504-afdd"
+
+
+===Asset ID Specification===
+
+Following CAIP-19, the asset ID for Liquid Network is defined as:
+
+<pre>
+asset_id:          chain_id + "/" + asset_namespace + ":" + asset_reference
+chain_id:          "bip122:" + reference
+reference:         First 32 characters of the network's genesis block hash
+asset_namespace:   "elip144"
+asset_reference:   Asset's hex identifier on the Liquid Network
+</pre>
+
+Where:
+* For Liquid Network: chain_id = "bip122:1466275836220db2944ca059a3a10ef6"
+* For Liquid Testnet: chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"
+* asset_namespace = "elip144" (defined in this ELIP)
+* asset_reference = hexadecimal representation of the Liquid asset ID
+
+Example Asset IDs:
+* L-BTC (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elip144:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+* Tether USDt (Liquid): "bip122:1466275836220db2944ca059a3a10ef6/elip144:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* tL-BTC (Liquid Testnet): "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elip144:6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d"
+
+Note: This specification replaces the previously suggested [slip44](https://github.com/satoshilabs/slips/blob/master/slip-0044.md) namespace for Liquid assets, as the slip44 namespace can represent only the policy asset (Liquid BTC) and cannot represent the variety of assets on the Liquid Network.
+
+===Use Cases===
+
+The asset ID specification allows for recognition of the same asset across different blockchains. For example:
+* Tether USDt on Liquid: "bip122:1466275836220db2944ca059a3a10ef6/elip144:ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2"
+* Tether USDt on Ethereum: "eip155:1/erc20:0xdac17f958d2ee523a2206206994597c13d831ec7"
+
+Applications can use these identifiers to recognize that these assets represent the same underlying value, facilitating cross-chain operations.
+
+
+==Backwards Compatibility==
+
+This proposal introduces new standards and does not affect existing functionality. Wallets and applications that do not support these standards can continue to operate as before.
