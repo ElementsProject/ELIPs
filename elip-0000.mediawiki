@@ -52,7 +52,7 @@ For each supported issued asset, there is a specified fee rate multiplier: <code
 issued_asset_fee_rate_multiplier_u64: u64 = ((issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR).ceil() as u64);
 </code>
 
-This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code>. 
+This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code> in sat/vbyte. 
 
 <code>
 effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_u64) / ASSET_MULTIPLIER_SCALE_FACTOR
