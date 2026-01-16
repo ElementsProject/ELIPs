@@ -29,7 +29,7 @@ Block creators can configure individual nodes explicitly with accepted assets fo
 
 In order for wallets and users to know which assets are being accepted by block creators for fees and at what rates, the block creators can publish this information in the coinbase of blocks they produce. This removes the requirement for separate servers to publish and relay this data. 
 
-The controller feature is independent of the fee rate publication feature: the controller can remotely set the fee assets and multipliers to be used as policy by the block signers. The block signers can then publish the assets and multipliers being used (however they are set) for users/wallets. 
+The controller feature is independent of the fee rate publication feature: the controller can remotely set the fee assets and multipliers to be used as policy by the block signers. The block signers can then publish the assets and multipliers being used for users/wallets. 
 
 ==Design==
 
