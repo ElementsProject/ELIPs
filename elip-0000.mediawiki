@@ -88,7 +88,7 @@ Asset fee rates multipliers (and an optional destination) may be encoded in addi
 
 * 4 bytes: <code>AFEE</code>
 * 32 bytes: asset ID
-* 16 bytes: fee rate multiplier (u64 encoded)
+* 16 bytes: fee rate multiplier (u64 encoded big-endian)
 * (up to) 35 bytes: fee destination script
 
 Nodes can be configured to perform this publication either every block, or every <code>n</code> blocks. 
