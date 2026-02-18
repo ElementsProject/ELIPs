@@ -47,6 +47,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Standards Track
 | Draft
 |- style="background-color: #ffcfcf"
+| [[elip-0144.mediawiki|144]]
+| Wallet
+| Account and Asset Identification on the Liquid Network
+| Riccardo Casatta
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
 | [[elip-0150.mediawiki|150]]
 | Wallet
 | CT Descriptors for Elements
@@ -57,6 +64,13 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | [[elip-0151.mediawiki|151]]
 | Wallet
 | Deterministic Descriptor Blinding Keys
+| Leonardo Comandini
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
+| [[elip-0152.mediawiki|152]]
+| Wallet
+| Deterministic Wallet ID
 | Leonardo Comandini
 | Standards Track
 | Draft
@@ -74,6 +88,20 @@ Having an ELIP here does not make it a formally accepted standard until its stat
 | Kilian Rausch
 | Standards Track
 | Active
+|- style="background-color: #ffcfcf"
+| [[elip-0202.mediawiki|202]]
+| Applications
+| Optional sidechain peg-in subsidy and minimum peg-in amount
+| Byron Hambly
+| Standards Track
+| Draft
+|- style="background-color: #ffcfcf"
+| [[elip-0203.mediawiki|203]]
+| Applications
+| Explicit asset issuance over 21 million
+| Tom Trevethan
+| Standards Track
+| Draft
 |- style="background-color: #ffcfcf"
 | [[elip-0204.mediawiki|204]]
 | Applications

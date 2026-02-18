@@ -1,0 +1,168 @@
+<pre>
+  ELIP: 152
+  Layer: Wallet
+  Title: Deterministic Wallet ID
+  Author: Leonardo Comandini <leonardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0152
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-11-25
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a standard way to deterministically derive an identifier from a wallet descriptor.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Wallet software needs a way to uniquely identify wallet descriptors for various purposes, including comparing whether two descriptors represent the same wallet, providing user-friendly identifiers for support and debugging, and storing and retrieving wallet-specific settings.
+
+A naive approach would be to use the descriptor string itself as an identifier.
+However, descriptors can be represented in multiple equivalent ways.
+For instance, the same wallet may be represented with or without key origin information, with equivalent xpubs, or with or without checksums.
+Using the raw descriptor string would fail to recognize these as the same wallet.
+
+This ELIP defines a Deterministic Wallet IDentifier (DWID) that:
+* Is derived deterministically from a CT descriptor
+* Produces the same identifier for equivalent descriptors
+* Is network-specific
+* Is human-readable with formatting for easier comparison
+
+==Design==
+
+===Specification===
+
+Given a CT descriptor <code>DESCRIPTOR</code> as defined in [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP-150] and the network parameters for address generation, the DWID is derived as follows:
+* If the top-level script expression is <code>combo</code>, fail.
+* If the descriptor has at least one hardened derivation step, fail.
+* If <code>DESCRIPTOR</code> is multi-path, resolve to the first single descriptor.<ref>
+Replace <code>/<NUM1;NUM2;...;NUMn></code> with <code>/NUM1</code>.
+</ref>
+* If the descriptor has wildcards, derive the definite descriptor at index 2<sup>31</sup>-1.<ref>
+We want to use an address that will not be used in a transaction.
+Wallets use addresses starting from index 0,
+thus we choose the last non-hardened index,
+which in practice will never be used in a transaction.
+</ref>
+* Derive the confidential address using the network address parameters.<ref>
+Using the address makes the DWID network specific.
+Using the confidential address includes the descriptor blinding key contribution in the DWID computation.
+</ref>
+* Compute the SHA256 hash of the confidential address string bytes.
+* Take the first 16 bytes of the hash, convert them to hex (32 hex characters).<ref>
+Using 16 bytes (128 bits) provides sufficient entropy to prevent collisions while keeping the identifier reasonably short.
+The probability of a collision is negligible for practical purposes.
+</ref>
+* Format with hyphens every 4 characters.
+
+The resulting DWID has the format <code>xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx</code> where each <code>x</code> is a lowercase hexadecimal digit.
+
+===Limitations===
+Computing a "descriptor ID" requires to deal with several ambiguities.
+This ELIP aims to specify a simple and useful standard, which however has some limitations.
+
+====Multipath====
+Descriptors without multipath can have the same ID as descriptors with (different kind of) multipath.
+For instance descriptors where <code>/0</code> is replaced by <code>/<0;1></code> or <code>/<0;1;2></code> have the same DWID.
+
+We only use the first path rather than computing a combined identifier from all paths because:
+* it keeps the computation simple and efficient;
+* multipath descriptors already require special handling and restrictions in wallet software, even for simple cases with <code>/<0;1></code>.
+
+====Explicit Index 2<sup>31</sup>-1====
+Descriptors with a wildcard can have the same ID as descriptor where the wildcard is replaced by the explicit index 2<sup>31</sup>-1.
+
+====Equivalent Keys====
+In this ELIP we consider two descriptors equivalent if they yield to the same addresses.
+However descriptors can include additional information about how keys have been derived and how they can be used for signing:
+* Keys can have keyorigin data
+* Single keys can be replaced by BIP32 extended keys
+* Public keys can be replaced by private keys
+* Explicit keys can be replaced by `musig` expressions (not yet available)
+
+Despite this information is a crucial portion of the descriptor, as it is often required by wallet software to sign transactions, it is ignored for the DWID computation.
+
+====Hardened Steps====
+Descriptors with hardended steps (including hardened wildcards <code>/*h</code>) requires access to secret key data to derive addresses. To simplify DWID computation we disallow these descriptors. However it's still possible to convert such descriptors to equivalent ones without hardened steps and compute the DWID.
+
+==Test Vectors==
+
+Network address parameters:
+* Liquid (p2pkh_prefix: 57, p2sh_prefix: 39, blinded_prefix: 12, bech_hrp: ex, blech_hrp: lq)
+* Liquid Testnet (p2pkh_prefix: 36, p2sh_prefix: 19, blinded_prefix: 23, bech_hrp: tex, blech_hrp: tlq)
+* Liquid Regtest (p2pkh_prefix: 235, p2sh_prefix: 75, blinded_prefix: 4, bech_hrp: ert, blech_hrp: el)
+
+The following CT descriptors yield the given DWIDs on the specified networks:
+
+* Test Vector 1
+** Description: Liquid
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/*))</code>
+** DWID: <code>b781-7bc7-db64-c3de-3937-7eb7-c9ab-f799</code>
+
+* Test Vector 2
+** Description: Liquid Testnet
+** Network: Liquid Testnet
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1h/0h]tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/0/*))</code>
+** DWID: <code>977a-c955-9289-b81a-e5b1-1ef9-f903-ec8a</code>
+
+* Test Vector 3
+** Description: Liquid Regtest
+** Network: Liquid Regtest
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1h/0h]tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/0/*))</code>
+** DWID: <code>f4b6-a53f-e7c1-02be-920c-a558-ff83-5979</code>
+
+* Test Vector 4
+** Description: equivalent descriptor
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh(xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/*))</code>
+** DWID: <code>b781-7bc7-db64-c3de-3937-7eb7-c9ab-f799</code>
+
+* Test Vector 5
+** Description: multi-path
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/<0;1>/*))</code>
+** DWID: <code>b781-7bc7-db64-c3de-3937-7eb7-c9ab-f799</code>
+
+* Test Vector 6
+** Description: different blinding key
+** Network: Liquid
+** CT Descriptor: <code>ct(elip151,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/*))</code>
+** DWID: <code>6cb1-604a-d277-7568-7646-81f9-4f9a-9650</code>
+
+* Test Vector 7
+** Description: equivalent blinding key
+** Network: Liquid
+** CT Descriptor: <code>ct(9fc48763c2aa01aa7b26edb3c8e32f709e4a6b5a83d4379c85864c7e613c5d65,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/*))</code>
+** DWID: <code>6cb1-604a-d277-7568-7646-81f9-4f9a-9650</code>
+
+* Test Vector 8
+** Description: no wildcard
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0))</code>
+** DWID: <code>f372-cfc2-51f0-1852-1067-750b-6e63-5d93</code>
+
+* Test Vector 9
+** Description: explicit index 2^31-1
+** Network: Liquid
+** CT Descriptor: <code>ct(3e129856c574c66d94023ac98b7f69aca9774d10aee4dc087f0c52a498687189,elwpkh([73c5da0a/84h/1776h/0h]xpub6CRFzUgHFDaiDAQFNX7VeV9JNPDRabq6NYSpzVZ8zW8ANUCiDdenkb1gBoEZuXNZb3wPc1SVcDXgD2ww5UBtTb8s8ArAbTkoRQ8qn34KgcY/0/2147483647))</code>
+** DWID: <code>b781-7bc7-db64-c3de-3937-7eb7-c9ab-f799</code>
+
+==Reference Implementation==
+
+Implemented in LWK: https://github.com/blockstream/lwk
+
+==Footnotes==
+
+<references />
+
+==Acknowledgments==
+We would like to thank Riccardo Casatta for the help in defining and implementing determistic wallet ids in LWK and Andrew Poelstra for the suggestions for the limitations section.
