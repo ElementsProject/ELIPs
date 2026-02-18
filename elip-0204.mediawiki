@@ -1,0 +1,199 @@
+<pre>
+  ELIP: 204
+  Layer: Applications
+  Title: Issued Asset Fees
+  Author: Tom Trevethan <ttrevethan@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0204
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-09-02
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a modification to Elements to enable transaction fees to be paid in issued assets in addition to the <code>policyAsset</code> (or pegged asset). Individual nodes will be configured with the issued assets for fees accepted for mempool entry and relay, and at what fee rates relative to the <code>policyAsset</code>. The accepted fee assets and the relative applied fee rate can be either configured explicitly for each node, or set remotely with an authenticated on-chain transaction. Block creators can optionally publish the accepted fee assets and corresponding fee rates in the coinbase of blocks they generate to communicate this information to users and wallets. 
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Current policy rules for mempool acceptance and relay require that the <code>assetID</code> of the transaction fee is the <code>policyAsset</code>. The consensus rules however allow for any <code>assetID</code> to be used for the fee asset (so long as the transaction is otherwise valid). The current restriction limits the usefulness of the Elements platform for transacting in issued assets, as <code>policyAsset</code> must be obtained before being able to transact. Block creators may choose to accept fee payments in other assets that have value, at specified exchange rates. 
+
+Block creators can configure individual nodes explicitly with accepted assets for fees and rates, but to enable a federation to be managed with consistent fee policy (which may require frequent changes), a method to perform this configuration remotely via an on-chain transaction is also required. Individual nodes can then be configured with a 'controller' script that enables changes to the fee asset policy without requiring direct configuration of individual nodes. 
+
+In order for wallets and users to know which assets are being accepted by block creators for fees and at what rates, the block creators can publish this information in the coinbase of blocks they produce. This removes the requirement for separate servers to publish and relay this data. 
+
+The controller feature is independent of the fee rate publication feature: the controller can remotely set the fee assets and multipliers to be used as policy by the block signers. The block signers can then publish the assets and multipliers being used for users/wallets. 
+
+==Design==
+
+===Overview===
+
+Each node has complete control over which assets and at what fee rates to accept as policy. However, in practice all block creators and relaying nodes should agree to apply the same asset fee policy in order to provide a reliable service for users. The assets and fee rates accepted by any node can be set as part of the node configuration, specifying the <code>assetID</code>, the relative rate multiplier (and optionally the coinbase destination for the fee collection by the block creator) before initialization, or this can be set dynamically at runtime. 
+
+For fees in an issued asset, the fee rate (in units/vbyte) will be scaled to determine an 'effective rate'. This effective rate is then used in place of the <code>policyAsset</code> fee rate for the purpose of meeting relay and mempool minimums and for mempool ordering. 
+
+E.g. An issued asset is USDT. The current accepted exchange rate between USDT and LBTC (the policyAsset) is $114,171.23 to 1 LBTC. The issued asset fee rate multiplier for this ratio is then set to 1/114,171.23 = 0.00000876 (rounded to a precision of 1e-8). For a transaction that uses the USDT asset for the fee, the fee rate (in units/vbyte) multiplied by this number must be greater than or equal to the minimum fee rate (in sat/vbyte) in LBTC applied to policy.
+If the current minimum relay fee rate is 1 sat/vbyte in LBTC, then the minimum fee rate required in USDT would be 1/0.00000876 = 114156 units/vbyte (rounded up to the nearest integer). To relay this transaction, a node will determine the fee rate in the USDT asset, multiply it by 0.00000876 to calculate the effective rate and then verify it is greater than or equal to 1 sat/vbyte. 
+
+===Specification===
+
+====Issued asset fees====
+
+For each supported issued asset, there is a specified fee rate multiplier: <code>issued_asset_fee_rate_multiplier</code> (a float). This is represented internally as a fixed precision <code>u64</code> (using Rust syntax) number <code>issued_asset_fee_rate_multiplier_u64</code> (the number of decimal places supported is specified by the <code>u64</code> parameter <code>ASSET_MULTIPLIER_SCALE_FACTOR</code> (default <code>100000000</code>) which is applied to all asset multipliers. 
+
+<code>
+issued_asset_fee_rate_multiplier_u64: u64 = ((issued_asset_fee_rate_multiplier * ASSET_RATE_SCALE_FACTOR).ceil() as u64);
+</code>
+
+This value scales the calculated the fee rate of a transaction that has an issued asset fee to give an <code>effective_fee_rate</code> in sat/vbyte. 
+
+<code>
+effective_fee_rate = (asset_fee_rate * issued_asset_fee_rate_multiplier_u64) / ASSET_MULTIPLIER_SCALE_FACTOR
+</code>
+
+Where <code>asset_fee_rate</code> is the fee rate calculated using the transaction vsize and the amount of the issued asset fee. For every transaction in the mempool that has an issued asset fee, the <code>effective_fee_rate</code> is used in place of the policyAsset fee rate for the purposes of mempool ordering and minimum mempool fee rate calculation. In the case a transaction has fees paid in more than one asset type, the <code>effective_fee_rate</code> is computed for the total fee of each asset type and then summed together. 
+
+The value of <code>issued_asset_fee_rate_multiplier_u64</code> must be between 1 and <code>MAX_ASSET_MULTIPLIER</code>
+
+By default <code>MAX_ASSET_MULTIPLIER = 10^15</code>. Scaled as a fixed precision number, this enables values of <code>issued_asset_fee_rate_multiplier</code> between 0.00000001 and 10,000,000. 
+
+The value of <code>(asset_fee_rate * issued_asset_fee_rate_multiplier_u64)</code> cannot exceed the maximum allowed value of <code>u64</code>. If it does, then the <code>effective_fee_rate</code> is set to maximum allowable value of <code>u64::MAX / ASSET_RATE_SCALE_FACTOR = 92233720368</code> (which is equivalent to 922.3372 LBTC/vbyte). 
+
+To calculate the value of an issued asset fee required for a transaction of size <code>vsize</code> where the current minimum <code>policyAsset</code> fee rate is <code>policy_asset_rate</code>:
+
+<code>
+fee_amount = vsize * policy_asset_rate * (1 + ((ASSET_RATE_SCALE_FACTOR - 1) / issued_asset_fee_rate_multiplier_u64))
+</code>
+
+The minimum and maximum possible values of the fee rate multiplier limit the relative values of assets that can be used for fees, and as the multiplier gets closer to its minimum value the rounding rules will cause larger inaccuracies in the relative fees charged. 
+
+Each node stores a local list of the accepted fee assets, corresponding rate multiplier (and optional destination). The maximum number of issued asset fee multipliers allowed is set by <code>MAX_ISSUED_ASSET_FEE_SIZE</code>.
+
+Unconfirmed transactions are ordered in the mempool (for selection for inclusion in a block) by the <code>policyAsset</code> fee rate (if the fee asset is policyAsset) or the <code>effective_fee_rate</code> if the fee is in an issued asset. The <code>issued_asset_fee_rate_multiplier_u64</code> for a specific asset may be changed while there are issued asset fee transactions in the mempool awaiting confirmation. When this happens, the <code>effective_fee_rate</code> is updated and the ordering updated with the new rate. If a fee asset is removed completely, the previous <code>effective_fee_rate</code> remains in effect for ordering. 
+
+Note: Consensus enforces that any individual fee output, and the total sum of fee values in a block do not exceed <code>MAX_MONEY</code>. Issued asset fees could in theory exceed this, as individual assets might have much larger issuance amounts than <code>MAX_MONEY</code>. Therefore, currently the inclusion of issued asset fee paying transactions in a block will be limited so that the total value of fee outputs will not exceed <code>MAX_MONEY</code> when generating a new block. 
+
+====Fee rate publication====
+
+Nodes can optionally be configured to include the issued assets and multipliers they are accepting for fees in blocks they produce in order to publicize these to wallets and other users. 
+
+Asset fee rates multipliers (and an optional destination) may be encoded in additional coinbase <code>OP_RETURN</code> outputs (one output per asset) as follows:
+
+* 4 bytes: <code>AFEE</code>
+* 32 bytes: asset ID
+* 16 bytes: fee rate multiplier (u64 encoded big-endian)
+* (up to) 35 bytes: fee destination script
+
+Nodes can be configured to perform this publication either every block, or every <code>n</code> blocks. 
+
+A new RPC can be added to retrieve the latest assets and multipliers for use by wallets. Wallets need to wait until initial block download is complete before retrieving the latest multipliers to avoid using incorrect fee rates. 
+
+====Controller fee asset rate updates====
+
+This enables an external controller to set issued asset fee policy for a federation via an onchain transaction, with asset fee rate multipliers encoded in <code>OP_RETURN</code> outputs. 
+
+Any node can be configured to apply issued asset fee policy that is set by an external controller. This controller may be a single entity or several different entities which is given the authority to set fee policy. A node is then configured with the <code>scriptPubKey</code> that the controller (or multiple controllers, via a multisig script) can generate a valid witness for. 
+
+A valid controller transaction is defined by:
+
+1. The first output being the specified controller <code>scriptPubKey</code>
+2. It spends from an output with the same specified controller <code>scriptPubKey</code> (this authenticates the transaction). 
+3. The other outputs are <code>OP_RETURN</code> with each having a fee asset and rate multiplier (encoding is that same as that used for the fee rate publication). 
+
+A node can be configured with both explicit assets and multipliers and a controller <code>scriptPubKey</code>. An asset and multiplier encoded in a valid controller transaction overrides any previously set and explicitly configured multipliers. 
+
+Controller transactions become valid after 2 confirmations, and if there is more than one controller transaction in a block, they are applied in the sequence of the block verification. 
+
+==Backwards Compatibility==
+
+No issues for backwards compatibility - all existing transactions with policy asset fees are unaffected by these features. No changes to consensus rules are required.
+
+==Test Vectors==
+
+* Configure issued asset with fee rate of <code>issued_asset_fee_rate_multiplier = 0.5</code>
+
+<pre>asset: e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0</pre>
+
+* Get configured fee asset rates
+
+Result:
+
+<pre>[{'asset': 'e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0', 'rate': Decimal('0.5'), 'script': ''}]</pre>
+
+* Transaction with 1 input and 2 outputs (+ 1 fee output) with asset fee multiplier of 0.5:
+
+** vsize: 257
+
+** Fee: 514
+
+<pre>0200000001016f90831e415a738df732b62dd0b76e87bbe489096e43c892bf3dcbbfd173778d0000000000feffffff0301a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002faf08000160014c5439a67eaa99a308719b544f327a942ae02e6a701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000002f967de0016001467c8c91e8357e1e24d1721c4535a99608e47beb701a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee801000000000000020200006c0000000000024730440220031c1aa256e40a89cf622374e1ef281870a6abb6f588411800fe885f5195a49e02204f3c37cfe2318db87ac7ce4d7da70682e3477653f6222383ab72ea259a3b1fae0121029896a2fe9c710b8b71488b90038d3974144dc21c9c8750459162dc37d141459300000000000000</pre>
+
+* Update issued asset fee rate multiplier to 0.1
+
+<pre>asset: e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0</pre>
+
+* Get configured fee asset rates
+
+Result:
+
+<pre>[{'asset': 'e86ed2437731d8ebb6bf457ee95a7f50e0bdfb41d319c69af046c52c7f25aba0', 'rate': Decimal('0.1'), 'script': ''}]</pre>
+
+* Transaction with 1 input and 2 outputs (+ 1 fee output) with asset fee at rate multiplier 0.1:
+
+** vsize: 257
+
+** Fee: 2570
+
+<pre>0200000001015ce5df8217dfa572d4539d0ae05178be26c27dbc43af35f6877f0160c8d329360100000000feffffff0301a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000001312d0000160014fc060cafa93c7f4d5e0963ba08c55540c28361bf01a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000001c830d4001600141f79c72bcdad5c20c17337c1f22c3b41f156c53d01a0ab257f2cc546f09ac619d341fbbde0507f5ae97e45bfb6ebd8317743d26ee8010000000000000a0a00004100000000000247304402205bc1f97638e5b1932ba6df702e938bd1cfdc6da46a4db8511fe172f821f102c502206a6fbe66d81e89bd78b4157d58af15e8c940e0c0d797cbe91535fb31683e013601210291d9c10cf976e932db8ffe0f2bf1d9c1574ea3affe2e0f98ff15e1b328eb860300000000000000</pre>
+
+* Configuration for fee asset rate publication:
+
+<pre>asset: b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22 multiplier: 1.86</pre>
+<pre>asset: af6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3 multiplier: 3.781</pre>
+
+Coinbase transaction:
+
+<pre>0200000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0401640101ffffffff0401230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeaf6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3000000008d1ba84001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22000000001689592001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000012a05f200001976a9149d8419680d03a0ac4133beb9e097d5c9ff7babbc88ac01230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000000000000000266a24aa21a9ed5aa9aac025ce73291c124e2ccfd44ae60837d1f20a8573318427075444287de800000000000001200000000000000000000000000000000000000000000000000000000000000000000000000000000000</pre>
+
+Output 1:
+
+<pre>afeeaf6e22da7b20de2da56c6726c4a036c73f777c8fb5bfc356892c01a9a3dd58d3000000008d1ba840</pre>
+
+Output 2:
+
+<pre>afeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000016895920</pre>
+
+* Controller transaction
+
+<pre>
+controler_script = "00145956bc071791295bfd5161ddb770aa536289b3e3"
+controller_addr = "ert1qt9ttcpchjy54hl23v8wmwu922d3gnvlrz7sqx7"
+private_key = "cP3N3Z3rMTo4L2gNRDWmzo8nGNyVNnWwFX9DRVPqwcPnMWE8Rn33"
+</pre>
+
+Fee Asset setting:
+
+<pre>asset_id = b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22</pre>
+
+rate = 1.0
+
+Encoded fee asset hex string:
+
+<pre>afeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000005f5e100</pre>
+
+Controller transaction:
+
+<pre>020000000001500d712c870c96c0bec05f41d765f4f5f203bd8d5b7ea6ef333b53b8c2c2d164000000006a47304402207f1b2c580ee052b8d0da06a139cd1e910ec93c8b11585d692646e6267b8354c4022045caab622e3adbae204263dfdc86e341fd9f3c013cbf2234fdea2c8ee2ba0d81012103ba4a2b1f401eb59e1e6b104f8043ce41b38b65bd24c10edb3df8863b0241e5afffffffff0301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b201000000012a046b60001600145956bc071791295bfd5161ddb770aa536289b3e301230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000000002c6a2aafeeb92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a220000000005f5e10001230f4f5d4b7c6fa845806ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b20100000000000186a0000000000000</pre>
+
+Get asset and multiplier:
+
+<pre>[{'asset': 'b92b2e64772d8edc7703534fc5028906ab1468a7497af9e8620999132af96a22', 'rate': 1, 'script': ''}]</pre>
+
+<references />
