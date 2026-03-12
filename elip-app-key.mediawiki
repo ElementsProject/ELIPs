@@ -1,0 +1,170 @@
+<pre>
+  ELIP: ?
+  Layer: Applications
+  Title: Deterministic Derivation of Application Keys
+  Author: Mikhail Tolkachev <contact@miketolkachev.dev>
+  Comments-Summary: No comments yet.
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-03-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document defines a deterministic method for deriving application-specific keys from a dedicated BIP-32 derivation path.
+
+The scheme enables wallet applications to derive internal keys for multiple purposes from a common root key, using a construction that is independent from other key hierarchies.
+
+This proposal is intended for environments where applications can derive BIP-32 private keys using approved paths and need a standardized way to reserve a dedicated subtree for application-level key derivation.
+
+==Copyright==
+
+This ELIP is licensed under the 2-clause BSD license.
+
+==Specification==
+
+===Definitions===
+
+Let the application root private key be derived according to BIP-32 using the following reserved hardened path:
+
+<pre>
+m / 4280400' / 4932953' / 1'
+</pre>
+
+Where:
+
+* <tt>4280400</tt> corresponds to the 3-byte ASCII string <tt>"APP"</tt>
+* <tt>4932953</tt> corresponds to the 3-byte ASCII string <tt>"KEY"</tt>
+* <tt>1</tt> is the numerical version identifier for this specification, version 1
+
+The 32-byte private key derived at this path is denoted as <tt>app_root</tt>.
+
+===Application root derivation===
+
+The application root key is defined as the BIP-32 private key at:
+
+<pre>
+app_root = BIP32_privkey(m / 4280400' / 4932953' / 1')
+</pre>
+
+This key provides a deterministic root for all application-specific keys defined by this specification.
+
+===Application key derivation===
+
+Application-specific keys are derived from <tt>app_root</tt> using labeled HMAC-SHA256 derivations:
+
+<pre>
+app_key(label) = HMAC_SHA256(key=app_root, msg=label)
+</pre>
+
+Where:
+
+* <tt>label</tt> is a byte string identifying the purpose of the key
+* labels MUST be unique within the application domain
+
+Applications MAY define any number of keys using distinct labels.
+
+===Wallet policy registration key===
+
+A wallet policy registration key can be derived as:
+
+<pre>
+wallet_policy_key = HMAC_SHA256(key=app_root, msg="wallet-policy-registration")
+</pre>
+
+This key may be used as a secret key for computing keyed-hash message authentication code (HMAC) over wallet descriptors that were explicitly approved by the user on the hardware wallet. The host software is expected to present the computed authentication code whenever it later uses the approved descriptor to avoid repeated user approval requests.
+
+==Motivation==
+
+Hardware wallet applications may require deterministic keys for purposes such as:
+
+* authentication of application-specific metadata
+* approval tokens for wallet policies
+* encryption of application data, particularly if stored at the host
+* other authentication or encryption keys specific to the host protocol
+
+Using ordinary account or address derivation paths for such purposes is undesirable, as those paths are typically intended for wallet structures visible to the user and covering primary digital asset use cases.
+
+This document specifies a deterministic derivation scheme that:
+
+* reserves a dedicated BIP-32 subtree for application key derivation
+* provides domain separation from ordinary wallet and account derivation paths
+* allows multiple application-specific keys to be derived from a common root
+* supports versioning of the application root path
+* is simple to implement in constrained hardware wallet environments
+
+==Rationale==
+
+Hardware wallet architectures commonly expose BIP-32 key derivation functionality to applications but do not always provide arbitrary symmetric key derivation mechanisms like SLIP-0021, or these mechanisms could have a restriction on the number of allowed derivation paths.
+
+Using a dedicated BIP-32 subtree allows application-specific key derivation while remaining compatible with existing wallet architectures and avoiding dependence on other derivation schemes.
+
+The hardened path:
+
+<pre>
+m / 4280400' / 4932953' / 1'
+</pre>
+
+was chosen for the following reasons:
+
+* the components encode ASCII identifiers (<tt>"APP"</tt> and <tt>"KEY"</tt>) to make the reserved purpose explicit
+* hardened derivation ensures that application keys cannot be derived from extended public keys
+* the final path component provides versioning for future revisions of the specification
+
+Deriving application keys from <tt>app_root</tt> using HMAC-SHA256 provides a flexible mechanism for generating multiple independent keys without requiring additional BIP-32 derivations.
+
+==Backwards Compatibility==
+
+This specification does not modify BIP-32 behavior.
+
+Existing implementations of BIP-32 remain fully compatible.
+
+This proposal only reserves a specific hardened derivation path for application root key derivation and defines a subsequent HMAC-based derivation scheme for application-specific keys.
+
+==Security Considerations==
+
+===Domain separation===
+
+This specification reserves the dedicated hardened BIP-32 path:
+
+<pre>
+m / 4280400' / 4932953' / 1'
+</pre>
+
+for application key derivation.
+
+The use of a dedicated reserved subtree provides domain separation from ordinary wallet, account, address, and protocol-specific derivation paths.
+
+The <tt>"APP"</tt> and <tt>"KEY"</tt> path components are intended to make the reserved purpose explicit, while the final hardened component provides versioning for future revisions of this specification.
+
+===Confidentiality of derived keys===
+
+All application-specific keys derived according to this specification inherit the confidentiality level of <tt>app_root</tt>.
+
+If <tt>app_root</tt> or the corresponding BIP-32 private key at the reserved path is disclosed, all application-specific keys derived from it are compromised as well.
+
+Applications SHOULD therefore treat <tt>app_root</tt> as sensitive key material and SHOULD avoid exposing it outside of trusted execution boundaries whenever possible.
+
+===Key usage===
+
+Application keys derived according to this specification are intended primarily for symmetric cryptographic operations such as HMAC authentication or block ciphers.
+
+However, applications MAY use a derived key as a secp256k1 private key or other asymmetric key material if appropriate validation is performed. If a derived key is interpreted as a secp256k1 private key, it MUST be validated to ensure that it represents a valid scalar in the range:
+
+<pre>
+1 ≤ key < secp256k1 curve order
+</pre>
+
+Applications MUST ensure that each derived key is used for exactly one cryptographic purpose.
+
+===Label uniqueness===
+
+Applications MUST ensure that labels used in key derivation are unique in order to avoid unintended key reuse.
+
+Including descriptive namespaces in labels is RECOMMENDED.
+
+==References==
+
+* BIP-0032: Hierarchical Deterministic Wallets
+  https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
