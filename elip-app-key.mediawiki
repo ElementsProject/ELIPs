@@ -166,5 +166,4 @@ Including descriptive namespaces in labels is RECOMMENDED.
 
 ==References==
 
-* BIP-0032: Hierarchical Deterministic Wallets
-  https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+* [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32]: Hierarchical Deterministic Wallets
