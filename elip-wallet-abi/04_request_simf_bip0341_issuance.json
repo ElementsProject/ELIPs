@@ -1,0 +1,154 @@
+{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "216113a8-8eb7-4d1f-8573-8b6ed04f4ad5",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "params": {
+    "inputs": [
+      {
+        "id": "issuance-funding-input",
+        "utxo_source": {
+          "wallet": {
+            "filter": {
+              "asset": {
+                "exact": {
+                  "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49"
+                }
+              },
+              "amount": {
+                "min": {
+                  "amount_sat": 250000
+                }
+              },
+              "lock": "none"
+            }
+          }
+        },
+        "unblinding": "wallet",
+        "sequence": 4294967294,
+        "issuance": {
+          "kind": "new",
+          "asset_amount_sat": 1,
+          "inflation_amount_sat": 1,
+          "entropy": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ]
+        },
+        "finalizer": {
+          "type": "wallet"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "id": "issued-asset-to-simf-lock",
+        "amount_sat": 1,
+        "lock": {
+          "type": "finalizer",
+          "finalizer": {
+            "type": "simf",
+            "source_simf": "-- SimplicityHL source placeholder for review wire-shape only\n-- Replace with canonical source before production.",
+            "simplicity_hl_version": "0.4.2",
+            "internal_key": "bip0341",
+            "arguments": {
+              "static_values": {
+                "CONTRACT_NONCE": {
+                  "value": "1",
+                  "type": "u32"
+                }
+              },
+              "runtime_arguments": {
+                "COLLATERAL_ASSET_ID": {
+                  "new_issuance_asset": {
+                    "input_index": 0
+                  }
+                },
+                "COLLATERAL_TOKEN_ID": {
+                  "new_issuance_token": {
+                    "input_index": 0
+                  }
+                }
+              }
+            },
+            "witness": {
+              "static_values": {
+                "PATH": {
+                  "value": "Left(Right(Left((false, 10, 1000, 500))))",
+                  "type": "Either<Either<(u64, u256, u256, u256, u256, u256, u256, u256, u256), Either<(bool, u64, u64, u64), (bool, u64, u64)>>, Either<(bool, u64, u64), (bool, u64, u64)>>"
+                },
+                "COLLATERAL_AMOUNT": {
+                  "value": "10",
+                  "type": "u32"
+                }
+              },
+              "runtime_arguments": [
+                {
+                  "sig_hash_all": {
+                    "name": "USER_SIGHASH_ALL",
+                    "public_key": "73c5da0a4f7b8f2e91cd5f8f0c7a6d5b4c3a291817161514131211100f0e0d0c"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "asset": {
+          "type": "new_issuance_asset",
+          "input_index": 0
+        },
+        "blinder": {
+          "provided": {
+            "pubkey": "0273c5da0a4f7b8f2e91cd5f8f0c7a6d5b4c3a291817161514131211100f0e0d0c"
+          }
+        }
+      },
+      {
+        "id": "issued-token-to-wallet",
+        "amount_sat": 1,
+        "lock": {
+          "type": "wallet"
+        },
+        "asset": {
+          "type": "new_issuance_token",
+          "input_index": 0
+        },
+        "blinder": "wallet"
+      }
+    ],
+    "fee_rate_sat_kvb": 1000.0,
+    "lock_time": {
+      "Blocks": 900000
+    }
+  },
+  "broadcast": true
+}

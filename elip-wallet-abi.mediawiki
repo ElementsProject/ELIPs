@@ -1,0 +1,1195 @@
+<pre>
+  ELIP: ?
+  Layer: Wallet
+  Title: Wallet ABI Transaction Create Protocol
+  Author: Kyrylo Riabov
+          Artem Chystiakov
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-05-07
+  License: BSD-3-Clause
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+<code>wallet-abi-0.1</code> defines a JSON request/response protocol for transaction construction. The caller declares
+intended inputs, outputs, fee hints, locktime hints, issuance metadata, and finalization rules. The wallet/runtime
+validates the request against its active BIP-122/CAIP-2 chain identifier and wallet state, opens a request-scoped
+wallet snapshot, resolves wallet-owned and caller-provided prevouts, materializes declared outputs, appends fee/change
+outputs as needed, signs/finalizes inputs, optionally broadcasts, and returns either a finalized transaction or a structured error.
+
+The protocol is '''state-aware and non-idempotent'''. The same request may yield different successful transactions
+when wallet state, fee policy, UTXO availability, or broadcast state changes. For a single runtime request lifecycle,
+however, the runtime should use a stable wallet snapshot and deterministic output allocation so fee estimation and
+final build are internally consistent.
+
+=== Copyright ===
+
+This document is licensed under the 3-clause BSD license.
+
+=== Motivation ===
+
+Applications need a standard way to ask a wallet to construct and sign a transaction from an application-level intent
+while keeping wallet-owned UTXOs inside the wallet. This protocol provides a signing capability to the requester,
+but the wallet NEVER shares its UTXO set, balances, or wallet-internal selection state with the requester to facilitate the signing.
+
+=== Goals and non-goals ===
+
+==== Goals ====
+
+# Provide a reviewable definition of all request and response fields.
+# Make the user experience clear enough for wallet UI design.
+# Make non-idempotency and runtime state dependence explicit.
+# Use genesis-hash-based BIP-122/CAIP-2-style network identifiers instead of bare network names.
+# Provide JSON examples and a review JSON Schema.
+
+==== Non-goals ====
+
+# Define a final WalletConnect, JSON-RPC, or transport-level standard. This document describes the ABI payload.
+# Define full SimplicityHL semantic validation. This document describes how the payload is carried and resolved.
+# Guarantee exact final transaction shape from declared outputs. The runtime may add fee and change outputs.
+# Treat <code>request_id</code> as replay protection. It is correlation only.
+
+== Specification ==
+
+=== Normative language ===
+
+The words '''MUST''', '''SHOULD''', '''MAY''', and '''MUST NOT''' are used in the [https://www.rfc-editor.org/rfc/rfc2119 RFC 2119] sense for this draft.
+
+=== Terminology ===
+
+{| class="wikitable"
+|-
+! Term
+! Definition
+|-
+| Caller / Producer / Dapp
+| Web app or protocol app that creates a <code>TxCreateRequest</code>.
+|-
+| Consumer / runtime
+| Wallet/mobile/daemon side that processes the request.
+|-
+| Wallet snapshot
+| Request-scoped view of spendable wallet UTXOs used during fee estimation and final construction.
+|-
+| Declared input/output
+| Input/output explicitly present in <code>params.inputs</code> or <code>params.outputs</code>; the opposite of a runtime-added input/output.
+|-
+| Runtime-added input/output
+| Wallet input, fee output, or change output added by the runtime to satisfy funding/balancing.
+|-
+| Finalizer
+| Rule for producing witness/finalization data or deriving a finalizer-owned input lock.
+|-
+| SIMF
+| SimplicityHL finalization payload carrying source, compiler version, JSON arguments, JSON witness values, and internal key source.
+|-
+| Internal key source
+| Selector that must return a Taproot/BIP340 x-only public key for control-block/script derivation.
+|-
+| BIP-122 chain id
+| A genesis-hash-based chain identifier represented in this ABI as a CAIP-2-style <code>bip122:32-lowercase-hex</code> string.
+|-
+| Input blinding secret key
+| Secret key material used to unblind a confidential prevout. It is not a wallet signing key or spend authorization key.
+|-
+| Inflation token
+| Reissuance token minted by a new issuance. This draft uses <code>inflation_amount_sat</code> for the amount of these token units.
+|-
+| Static SIMF value
+| Caller-known SIMF argument or witness value carried under <code>static_values</code>. Each entry is keyed by a SimplicityHL argument/witness name and encoded as <code>{ "value": string, "type": string }</code>.
+|-
+| Runtime SIMF value
+| SIMF argument or witness value that the runtime derives only after wallet state, issuance metadata, selected UTXOs, or the transaction sighash are known.
+|-
+| App/request identity
+| Authenticated context that lets a wallet show which actor initiated the request. This ABI does not define the identity system; it only requires wallets not to trust self-declared JSON labels as identity.
+|}
+
+=== User experience contract ===
+
+==== Caller-side flow ====
+
+# The web app builds a transaction intention in terms of wallet inputs, provided inputs, requested outputs, issuance outputs, and finalizers.
+# The web app generates a fresh <code>request_id</code> for this user action.
+# The web app sends a <code>TxCreateRequest</code> over the chosen transport.
+# The web app treats the returned <code>TxCreateResponse</code> as the only authoritative result for this processing attempt.
+
+==== Wallet/consumer-side review UI ====
+
+A wallet UI SHOULD present, before approval:
+
+{| class="wikitable"
+|-
+! UI item
+! Why it matters
+|-
+| App/request identity
+| Helps the user connect request to the initiating action.
+|-
+| <code>network</code>
+| Prevents Liquid mainnet/testnet/localtest confusion. Show the BIP-122 chain id and, if known, a friendly network label.
+|-
+| <code>request_id</code>
+| Helps support/debug correlation. It should not be described as replay protection.
+|-
+| <code>broadcast</code>
+| Distinguishes "build/sign only" from "publish to network".
+|-
+| Requested outputs
+| Shows labels, assets, amounts, lock type, and blinding mode.
+|-
+| Runtime-added fee/change
+| The declared output set is not the final transaction set.
+|-
+| Wallet asset deltas
+| The user should approve net wallet effect, not just declared outputs.
+|-
+| Explicit outputs
+| Warn when amount/asset confidentiality is disabled.
+|-
+| Provided input blinding-secret-key use
+| Warn because request payload may contain sensitive prevout-unblinding material.
+|-
+| Issuance/reissuance
+| Show minted asset amounts, <code>inflation_amount_sat</code>, confidential-token requirements, and positional input references.
+|-
+| SIMF/finalizer locks
+| Show program identity/hash/source summary, <code>simplicity_hl_version</code>, signer key use, and <code>internal_key</code> source.
+|-
+| Locktime/sequence
+| Warn that <code>lock_time</code> is ineffective when all sequences are final.
+|}
+
+<code>App/request identity</code> is intentionally not a new trusted JSON field in this ABI. A wallet MUST NOT identify
+the caller from self-declared labels inside the request payload. The authenticated caller context must come from the
+transport or platform binding, for example a browser origin/RP ID, native-app association, pairing session, signed
+registry entry, or another out-of-band identity system. This draft only says that such identity is important for UI review;
+exact discovery, registry, branding, and anti-phishing UI rules are out of scope for <code>wallet-abi-0.1</code>.
+
+==== Response UX ====
+
+The response is not a deterministic preview of an abstract request. It is the result of a specific processing attempt
+against a specific wallet state. On success, the UI should show whether the transaction was merely built or was broadcast.
+On error, product logic should branch on <code>error.code</code>, while <code>error.message</code> should be treated as technical context.
+
+=== Non-idempotency and deterministic boundaries ===
+
+<code>TxCreateRequest.request_id</code> is a correlation identifier and is not replay protection.
+Requests are '''not idempotent''', especially when <code>broadcast = true</code>.
+
+The runtime SHOULD provide deterministic behavior only within this narrower boundary:
+
+# Open one request-scoped wallet session for one processing lifecycle.
+# Use the same <code>spendable_utxos</code> snapshot across fee estimation and final build.
+# Return the same wallet output template for the same <code>(session, request)</code> pair.
+# Resolve declared inputs in order and update funding state sequentially.
+
+The same JSON request sent later MAY produce a different transaction because wallet UTXOs, already-spent state,
+chain height, fee policy, selected change outputs, and broadcast outcomes can change.
+
+=== Wire-format rules ===
+
+# Payloads are JSON objects unless a variant is explicitly serialized as a string.
+# Enum variants use <code>snake_case</code>.
+# <code>TxCreateRequest</code> and <code>RuntimeParams</code> reject unknown fields in the attached Rust schema.
+# Numeric satoshi amounts are unsigned 64-bit values. JavaScript callers SHOULD avoid unsafe integer conversion for values above <code>2^53 - 1</code>.
+# Byte-array fields, such as issuance <code>entropy</code>, are serialized as JSON arrays of integers from 0 to 255.
+# <code>FinalizerSpec::Simf.arguments</code> and <code>FinalizerSpec::Simf.witness</code> are JSON objects.
+# Hex fields are lowercase by convention, but consumers SHOULD accept uppercase only if their underlying parsers do.
+# <code>network</code> is a BIP-122/CAIP-2-style chain id string of the form <code>bip122:32-lowercase-hex</code>.
+# Secrets, including provided input blinding secret keys and intermediate PSET material, MUST NOT be logged.
+
+=== Request envelope: <code>TxCreateRequest</code> ===
+
+<pre>{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "params": { "inputs": [], "outputs": [] },
+  "broadcast": false
+}</pre>
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! style="text-align: center;"| Required
+! Definition
+|-
+| <code>abi_version</code>
+| style="text-align: right;"| string
+| style="text-align: center;"| yes
+| MUST equal <code>wallet-abi-0.1</code>. Anti-confusion/version guard.
+|-
+| <code>request_id</code>
+| style="text-align: right;"| UUID string
+| style="text-align: center;"| yes
+| Caller-generated correlation identifier. Generate fresh per user action. Not replay protection.
+|-
+| <code>network</code>
+| style="text-align: right;"| <code>Bip122ChainId</code>
+| style="text-align: center;"| yes
+| Target Elements/Liquid chain id. MUST match the runtime chain id before side effects.
+|-
+| <code>params</code>
+| style="text-align: right;"| <code>RuntimeParams</code>
+| style="text-align: center;"| yes
+| Transaction-construction body.
+|-
+| <code>broadcast</code>
+| style="text-align: right;"| boolean
+| style="text-align: center;"| yes
+| <code>true</code> means publish through wallet broadcaster after finalization. <code>false</code> means build/finalize only; runtime may still sync/fetch.
+|}
+
+==== <code>Bip122ChainId</code> ====
+
+<code>network</code> MUST use the [https://standards.chainagnostic.org/CAIPs/caip-2 CAIP-2] / [https://namespaces.chainagnostic.org/bip122/caip2 BIP122 namespace]
+wire shape derived from the [https://bips.dev/122/ BIP-122] chain-id concept:
+
+<pre>bip122:00000000000000000000000000000000</pre>
+where <code>genesis-prefix</code> is the first 16 bytes of the chain genesis block hash, encoded as 32 lowercase hex
+characters. The runtime MUST derive its active chain id from the active Elements node or equivalent runtime context
+and reject a request whose <code>network</code> does not match.
+
+Known Liquid/Elements examples:
+
+{| class="wikitable"
+|-
+! Network
+! Full genesis hash
+! ABI <code>network</code> value
+|-
+| Liquid mainnet (<code>liquidv1</code>)
+| <code>1466275836220db2944ca059a3a10ef6fd2ea684b0688d2c379296888a206003</code>
+| <code>bip122:1466275836220db2944ca059a3a10ef6</code>
+|-
+| Liquid testnet (<code>liquidtestnet</code>)
+| <code>a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1</code>
+| <code>bip122:a771da8e52ee6ad581ed1e9a99825e5b</code>
+|-
+| Default Elements regtest/localtest
+| <code>00902a6b70c2ca83b5d9c815d96a0e2f4202179316970d14ea1847dae5b1ca21</code>
+| <code>bip122:00902a6b70c2ca83b5d9c815d96a0e2f</code>
+|}
+
+The ABI does not rely on bare strings such as <code>liquid</code>, <code>testnet-liquid</code>, or
+<code>localtest-liquid</code>. Implementations MAY display friendly labels, but matching MUST be done against the chain id.
+
+=== Runtime parameters: <code>RuntimeParams</code> ===
+
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! style="text-align: center;"| Required
+! Definition
+|-
+| <code>inputs</code>
+| style="text-align: right;"| <code>InputSchema[]</code>
+| style="text-align: center;"| yes
+| Declared inputs, resolved sequentially in declaration order. Runtime may append wallet inputs after declared-input resolution.
+|-
+| <code>outputs</code>
+| style="text-align: right;"| <code>OutputSchema[]</code>
+| style="text-align: center;"| yes
+| Declared outputs, materialized in declaration order. Runtime may append fee and change outputs.
+|-
+| <code>fee_rate_sat_kvb</code>
+| style="text-align: right;"| number
+| style="text-align: center;"| no
+| Fee-rate override in sat/kvB. MUST be finite and non-negative. If omitted, runtime policy applies.
+|-
+| <code>lock_time</code>
+| style="text-align: right;"| <code>LockTime</code>
+| style="text-align: center;"| no
+| Fallback locktime written to PSET global tx data. Effective locktime still depends on input sequences.
+|}
+
+<code>inputs</code> and <code>outputs</code> are request requirements, not a complete transaction template.
+
+=== Input schema: <code>InputSchema</code> ===
+
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! style="text-align: center;"| Required
+! Definition
+|-
+| <code>id</code>
+| style="text-align: right;"| string
+| style="text-align: center;"| yes
+| Caller label for diagnostics/UI.
+|-
+| <code>utxo_source</code>
+| style="text-align: right;"| <code>UTXOSource</code>
+| style="text-align: center;"| yes
+| Prevout source selector.
+|-
+| <code>unblinding</code>
+| style="text-align: right;"| <code>InputUnblinding</code>
+| style="text-align: center;"| yes
+| How to resolve explicit or confidential prevout values.
+|-
+| <code>sequence</code>
+| style="text-align: right;"| u32
+| style="text-align: center;"| yes
+| Input sequence controlling finality, locktime activation, relative locktime, and RBF semantics.
+|-
+| <code>issuance</code>
+| style="text-align: right;"| <code>InputIssuance</code>
+| style="text-align: center;"| no
+| Issuance/reissuance metadata for this input. Required when outputs reference issuance-derived asset IDs.
+|-
+| <code>finalizer</code>
+| style="text-align: right;"| <code>FinalizerSpec</code>
+| style="text-align: center;"| yes
+| Input finalization strategy.
+|}
+
+==== <code>UTXOSource</code> ====
+
+<pre>{ "wallet": { "filter": { "asset": "none", "amount": "none", "lock": "none" } } }</pre>
+<pre>{ "provided": { "outpoint": "0000000000000000000000000000000000000000000000000000000000000000:0" } }</pre>
+{| class="wikitable"
+|-
+! Variant
+! Fields
+! Definition
+|-
+| <code>wallet</code>
+| <code>filter: WalletSourceFilter</code>
+| Runtime selects a wallet UTXO from the request-scoped snapshot. Filters are conjunctive.
+|-
+| <code>provided</code>
+| <code>outpoint</code>
+| Caller supplies an outpoint. Runtime fetches prevout and resolves unblinding according to <code>unblinding</code>.
+|}
+
+==== <code>WalletSourceFilter</code> ====
+
+{| class="wikitable"
+|-
+! Field
+! Variants
+! Definition
+|-
+| <code>asset</code>
+| <code>"none"</code> or <code>{"exact":{"asset_id"}}</code>
+| No asset constraint, or exact asset match.
+|-
+| <code>amount</code>
+| <code>"none"</code>, <code>{"exact":{"amount_sat"}}</code>, <code>{"min":{"amount_sat"}}</code>
+| No amount constraint, exact amount, or minimum amount.
+|-
+| <code>lock</code>
+| <code>"none"</code> or <code>{"script":{"script"}}</code>
+| No script constraint, or exact script-pubkey bytes.
+|}
+
+==== <code>InputUnblinding</code> ====
+
+{| class="wikitable"
+|-
+! Variant
+! Definition
+|-
+| <code>"wallet"</code>
+| Use wallet-owned descriptor/blinding material.
+|-
+| <code>{"provided":{"blinding_secret_key":"..."}}</code>
+| Use caller-supplied input blinding secret key for a confidential prevout. This is prevout-unblinding material, not a wallet signing key. Sensitive by default; '''never log'''.
+|-
+| <code>"explicit"</code>
+| Require explicit non-confidential prevout values. Confidential prevouts should fail.
+|}
+
+A dapp can provide <code>blinding_secret_key</code> only when it already knows the prevout unblinding material out
+of band or the protocol intentionally uses shared/known blinding material. Some Simplicity contract constructions
+can work with public or contract-known blinding material; the field is still named after its cryptographic role so
+it is not confused with a spend key. Unless local policy explicitly classifies the material as public, the runtime MUST handle it as secret.
+
+==== <code>InputIssuance</code> ====
+
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! Definition
+|-
+| <code>kind</code>
+| style="text-align: right;"| enum
+| One of <code>"new"</code> or <code>"reissue"</code>.
+|-
+| <code>asset_amount_sat</code>
+| style="text-align: right;"| u64
+| Amount of issued/reissued asset units to mint.
+|-
+| <code>inflation_amount_sat</code>
+| style="text-align: right;"| u64
+| Amount of reissuance/inflation-token units to mint. Replaces the older <code>token_amount_sat</code> naming to avoid confusing token amount with ordinary asset amount.
+|-
+| <code>entropy</code>
+| style="text-align: right;"| <code>[u8; 32]</code>
+| For <code>new</code>, contract-hash entropy; for <code>reissue</code>, already-derived asset entropy.
+|}
+
+Issuance-derived outputs reference inputs by positional <code>input_index</code>. Reordering inputs changes
+the derived asset IDs. If a new issuance mints <code>inflation_amount_sat > 0</code>, outputs that carry the derived
+inflation token must satisfy the confidentiality rule in [[#AssetVariant|AssetVariant]].
+
+=== Output schema: <code>OutputSchema</code> ===
+
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! style="text-align: center;"| Required
+! Definition
+|-
+| <code>id</code>
+| style="text-align: right;"| string
+| style="text-align: center;"| yes
+| Caller label for diagnostics/UI.
+|-
+| <code>amount_sat</code>
+| style="text-align: right;"| u64
+| style="text-align: center;"| yes
+| Requested output amount.
+|-
+| <code>lock</code>
+| style="text-align: right;"| <code>LockVariant</code>
+| style="text-align: center;"| yes
+| Script-pubkey derivation rule.
+|-
+| <code>asset</code>
+| style="text-align: right;"| <code>AssetVariant</code>
+| style="text-align: center;"| yes
+| Asset selector.
+|-
+| <code>blinder</code>
+| style="text-align: right;"| <code>BlinderVariant</code>
+| style="text-align: center;"| yes
+| Output confidentiality policy.
+|}
+
+==== <code>LockVariant</code> ====
+
+{| class="wikitable"
+|-
+! Variant
+! Wire shape
+! Definition
+|-
+| <code>wallet</code>
+| <code>{"type":"wallet"}</code>
+| Use wallet receive output template.
+|-
+| <code>script</code>
+| <code>{"type":"script","script":"0014aabbccddeeff00112233445566778899aabbccdd"}</code>
+| Use raw script-pubkey bytes (includes OP_RETURN, burn, etc.). Empty script should be rejected by runtime.
+|-
+| <code>finalizer</code>
+| <code>{"type":"finalizer","finalizer": ...}</code>
+| Derive output lock from finalizer/program.
+|}
+
+==== <code>AssetVariant</code> ====
+
+{| class="wikitable"
+|-
+! Variant
+! Definition
+|-
+| <code>asset_id</code>
+| Caller-provided asset ID.
+|-
+| <code>new_issuance_asset</code>
+| Asset ID derived from a <code>new</code> issuance input.
+|-
+| <code>new_issuance_token</code>
+| Confidential reissuance/inflation-token ID derived from a <code>new</code> issuance input.
+|-
+| <code>re_issuance_asset</code>
+| Asset ID derived from a <code>reissue</code> input.
+|}
+
+<code>new_issuance_asset</code> and <code>new_issuance_token</code> require <code>params.inputs[input_index].issuance.kind == "new"</code>.
+<code>re_issuance_asset</code> requires <code>kind == "reissue"</code>.
+
+In this ABI, <code>new_issuance_token</code> denotes the confidential reissuance/inflation-token variant.
+Any output whose <code>asset</code> resolves to <code>new_issuance_token</code> MUST be confidential:
+the runtime MUST reject <code>blinder = "explicit"</code> for that output. This is required for compatibility with
+the current reissuance model on Liquid, where reissuance tokens must remain confidential to be usable;
+see [https://github.com/BlockstreamResearch/SimplicityHL/issues/309 SimplicityHL issue #309].
+Explicit reissuance-token support, if added later, belongs in Future Work and would require an ABI/capability update.
+
+==== <code>BlinderVariant</code> ====
+
+{| class="wikitable"
+|-
+! Variant
+! Definition
+|-
+| <code>"wallet"</code>
+| Use wallet output template blinding pubkey. Should be paired with <code>lock.type = "wallet"</code>.
+|-
+| <code>{"provided":{"pubkey":"..."}}</code>
+| Use caller-supplied blinding public key.
+|-
+| <code>"explicit"</code>
+| Disable output asset/value confidentiality for this output.
+|}
+
+=== Finalizer specification: <code>FinalizerSpec</code> ===
+
+==== Wallet finalizer ====
+
+<pre>{ "type": "wallet" }</pre>
+Delegates input finalization to the wallet signer/miniscript stack.
+
+==== SIMF finalizer ====
+
+<pre>{
+  "type": "simf",
+  "source_simf": "...",
+  "simplicity_hl_version": "0.4.2",
+  "internal_key": "bip0341",
+  "arguments": {
+    "static_values": {
+      "CONTRACT_NONCE": { "value": "1", "type": "u32" }
+    },
+    "runtime_arguments": {
+      "COLLATERAL_ASSET_ID": { "new_issuance_asset": { "input_index": 0 } }
+    }
+  },
+  "witness": {
+    "static_values": {
+      "PATH": {
+        "value": "Right(Left((false, 10, 1000)))",
+        "type": "Either(...)"
+      }
+    },
+    "runtime_arguments": [
+      { "sig_hash_all": { "name": "USER_SIGHASH_ALL", "public_key": "73c5da0a4f7b8f2e91cd5f8f0c7a6d5b4c3a291817161514131211100f0e0d0c" } }
+    ]
+  }
+}</pre>
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! style="text-align: center;"| Required
+! Definition
+|-
+| <code>source_simf</code>
+| style="text-align: right;"| string
+| style="text-align: center;"| yes
+| UTF-8 SimplicityHL source loaded and instantiated by runtime.
+|-
+| <code>simplicity_hl_version</code>
+| style="text-align: right;"| string
+| style="text-align: center;"| yes
+| Exact Cargo/SimplicityHL compiler version that the runtime MUST use for compilation, address derivation, and script derivation. If the runtime cannot compile with this exact version, it MUST reject the request before deriving addresses or finalizing.
+|-
+| <code>internal_key</code>
+| style="text-align: right;"| <code>InternalKeySource</code>
+| style="text-align: center;"| yes
+| Taproot internal key source.
+|-
+| <code>arguments</code>
+| style="text-align: right;"| <code>SimfArguments</code> JSON object
+| style="text-align: center;"| yes
+| SIMF argument payload as JSON. Contains caller-known <code>static_values</code> and runtime-resolved <code>runtime_arguments</code>.
+|-
+| <code>witness</code>
+| style="text-align: right;"| <code>SimfWitness</code> JSON object
+| style="text-align: center;"| yes
+| SIMF witness payload as JSON. Contains caller-known <code>static_values</code> and runtime-resolved <code>runtime_arguments</code>.
+|}
+
+<code>simplicity_hl_version</code> is intentionally part of the wire request because different
+[https://github.com/BlockstreamResearch/SimplicityHL SimplicityHL] compiler versions may produce different
+compiled programs, CMRs, addresses, script pubkeys, or finalization behavior from the same <code>source_simf</code>.
+
+A runtime MUST compile <code>source_simf</code> with the requested <code>simplicity_hl_version</code>;
+it MUST NOT silently substitute a different compiler version. When a SIMF finalizer is used for an input, the runtime
+MUST derive the expected finalizer script pubkey from the explicitly requested SIMF source, version, <code>internal_key</code>,
+and finalizer payload. After resolving <code>utxo_source</code>, the runtime MUST verify that the resolved prevout script
+pubkey matches that computed script pubkey before signing or finalizing. A mismatch MUST be rejected, because otherwise
+the wallet could be tricked into signing a transaction for a UTXO locked by a different program.
+
+=== Internal key source ===
+
+==== Stable variant: <code>bip0341</code> ====
+
+The only stable <code>InternalKeySource</code> variant in <code>wallet-abi-0.1</code> is:
+
+<pre>"bip0341"</pre>
+It returns the fixed [https://bips.dev/341/ BIP-0341] NUMS/example x-only internal key:
+
+<pre>50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</pre>
+This variant is deterministic, portable, and safe as the initial interoperability baseline.
+
+=== SIMF argument and witness payloads ===
+
+<code>FinalizerSpec::Simf.arguments</code> and <code>FinalizerSpec::Simf.witness</code> are JSON objects
+at the ABI wire level. They are not UTF-8 byte arrays in <code>wallet-abi-0.1</code>.
+
+==== <code>static_values</code> ====
+
+<code>static_values</code> carries caller-known values that are already available when the app constructs the request.
+A static value is not necessarily derived or finalized by the runtime; it is simply known before the wallet selects UTXOs,
+derives issuance IDs, computes a sighash, or signs.
+
+The shape intentionally follows the SimplicityHL witness-file convention and the underlying
+<code>WitnessValues</code> / <code>WitnessNames</code> model: each top-level key is a SimplicityHL argument or
+witness name, and each value has two string fields:
+
+<pre>{
+  "NAME": {
+    "value": "Right(Left((false, 10, 1000)))",
+    "type": "Either(...)"
+  }
+}</pre>
+<code>value</code> MUST be encoded as a JSON string, even for numbers and booleans, because the SimplicityHL parser
+consumes Rust-like typed literals such as <code>"100"</code>, <code>"false"</code>, <code>"(true, 376)"</code>,
+<code>"Left(...)"</code>, or <code>"Right(...)"</code>. <code>type</code> MUST also be encoded as a JSON string,
+for example <code>"u64"</code>, <code>"Signature"</code>, <code>"(bool, u64)"</code>, or <code>"Either(...)"</code>.
+The runtime MUST treat both fields as untrusted compiler input and rely on the requested <code>simplicity_hl_version</code>
+parser/type checker before using them.
+
+For <code>arguments.static_values</code>, keys are static SimplicityHL argument/parameter names.
+For <code>witness.static_values</code>, keys are static SimplicityHL witness names.
+The exact accepted names and types are defined by <code>source_simf</code> and the requested compiler version.
+
+==== <code>static_values</code> examples ====
+
+For readability, the inline examples below abbreviate long SimplicityHL sum types as <code>Either(...)</code>.
+The auxiliary request fixture contains concrete mock type strings.
+
+A single branch selector known by the app at request-construction time:
+
+<pre>{
+  "PATH": {
+    "value": "Right(Right((false, 10, 1000)))",
+    "type": "Either(...)"
+  }
+}</pre>
+The same witness name selecting a different branch:
+
+<pre>{
+  "PATH": {
+    "value": "Right(Left((false, 10, 1000)))",
+    "type": "Either(...)"
+  }
+}</pre>
+Multiple static witness values:
+
+<pre>{
+  "PATH": {
+    "value": "Left(Right(Left((false, 10, 1000, 500))))",
+    "type": "Either(...)"
+  },
+  "COLLATERAL_AMOUNT": {
+    "value": "10",
+    "type": "u32"
+  }
+}</pre>
+==== <code>runtime_arguments</code> ====
+
+<code>runtime_arguments</code> carries directives for values the app cannot know at request-construction time.
+Examples include an issued asset ID that depends on the wallet-selected issuance input, a confidential reissuance
+token ID, or a transaction signature that depends on the final transaction sighash.
+
+For <code>FinalizerSpec::Simf.arguments</code>, <code>runtime_arguments</code> is an object keyed by target SimplicityHL argument names:
+
+<pre>{
+  "static_values": {
+    "CONTRACT_NONCE": { "value": "1", "type": "u32" }
+  },
+  "runtime_arguments": {
+    "COLLATERAL_ASSET_ID": { "new_issuance_asset": { "input_index": 0 } },
+    "COLLATERAL_TOKEN_ID": { "new_issuance_token": { "input_index": 0 } }
+  }
+}</pre>
+Supported runtime argument directives:
+
+{| class="wikitable"
+|-
+! Runtime argument
+! Definition
+|-
+| <code>new_issuance_asset</code>
+| Resolve a <code>u256</code> value from the issued asset ID of a new issuance input.
+|-
+| <code>new_issuance_token</code>
+| Resolve a <code>u256</code> value from the confidential reissuance/inflation-token ID of a new issuance input.
+|}
+
+For <code>FinalizerSpec::Simf.witness</code>, <code>runtime_arguments</code> is currently an array of witness directives:
+
+<pre>{
+  "static_values": {
+    "PATH": {
+      "value": "Right(Left((false, 10, 1000)))",
+      "type": "Either(...)"
+    }
+  },
+  "runtime_arguments": [
+    {
+      "sig_hash_all": {
+        "name": "USER_SIGHASH_ALL",
+        "public_key": "73c5da0a4f7b8f2e91cd5f8f0c7a6d5b4c3a291817161514131211100f0e0d0c"
+      }
+    }
+  ]
+}</pre>
+<code>sig_hash_all.public_key</code> MUST match the runtime signer x-only public key before the runtime signs.
+
+==== TODO: witness signature embedding ====
+
+<code>sig_hash_all</code> is intentionally still draft/TODO. The current shape names the target witness slot (<code>name</code>) and the
+expected signer x-only public key (<code>public_key</code>), but this draft does not yet finalize how the generated BIP-340 signature
+is embedded back into the SimplicityHL WitnessValues structure that could include branching (<code>Right(Left((<x-only-pubkey>, ...)))</code>).
+
+=== Runtime processing model ===
+
+Provider-specific state objects and wallet output allocation internals are informative implementation details in Appendix B.
+
+A conforming runtime MAY process a request in this order:
+
+# Decode JSON and reject unknown envelope/runtime fields.
+# Validate <code>abi_version</code> and <code>network</code> against runtime context.
+# Open one wallet request session.
+# Resolve declared inputs in order.
+# For any SIMF-finalized input, compile the requested <code>source_simf</code> with <code>simplicity_hl_version</code>,
+derive the expected finalizer script pubkey, and reject if the resolved UTXO script pubkey does not match.
+# Resolve issuance metadata for inputs and any issuance-linked output asset IDs.
+# Materialize declared outputs in order.
+# Estimate fee and balance supply/demand.
+# Append wallet funding inputs if needed.
+# Append fee output and per-asset change outputs as needed.
+# Blind the transaction where requested.
+# MAY present a review/approval stage once the runtime has enough information to show the materialized transaction effects,
+including runtime-added inputs/outputs, fee/change, confidentiality choices, issuance/inflation-token effects, SIMF program
+identity, and broadcast intent. Exact placement is runtime-dependent and may happen before finalization, during a
+hardware-device signing flow, after finalization, or immediately before broadcast.
+# Finalize wallet inputs and SIMF inputs.
+# If <code>broadcast = true</code>, MAY perform a separate broadcast approval according to runtime policy,
+then broadcast and return the backend-reported txid.
+# Return <code>TxCreateResponse</code> with <code>status = "ok"</code> or <code>status = "error"</code>.
+
+The review/approval stage is a MAY, not a mandatory protocol step, because some runtimes are non-interactive while
+others split approval across wallet UI, hardware-device prompts, finalization, and broadcast confirmation.
+The returned <code>TxCreateResponse</code> remains the only authoritative result of the processing attempt.
+
+=== Response envelope: <code>TxCreateResponse</code> ===
+
+==== Success ====
+
+<pre>{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "status": "ok",
+  "transaction": {
+    "tx_hex": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "txid": "5f5a9b3d8a1a55cb2fbc4f61b2b7bc4f4b6a8f8ebd5d39fb7d3e8bfe8b6a1a00"
+  },
+  "artifacts": {}
+}</pre>
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! Definition
+|-
+| <code>abi_version</code>
+| style="text-align: right;"| string
+| Response ABI version.
+|-
+| <code>request_id</code>
+| style="text-align: right;"| UUID
+| Copied from request.
+|-
+| <code>network</code>
+| style="text-align: right;"| <code>Bip122ChainId</code>
+| Copied/confirmed network context.
+|-
+| <code>status</code>
+| style="text-align: right;"| <code>"ok"</code>
+| Success marker.
+|-
+| <code>transaction.tx_hex</code>
+| style="text-align: right;"| hex
+| Fully signed Elements transaction.
+|-
+| <code>transaction.txid</code>
+| style="text-align: right;"| txid
+| Transaction ID of <code>tx_hex</code>; if broadcasted, should match backend-reported txid.
+|-
+| <code>artifacts</code>
+| style="text-align: right;"| object
+| Optional producer metadata. Open-ended; consumers must ignore unknown keys.
+|}
+
+==== Error ====
+
+<pre>{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "status": "error",
+  "error": {
+    "code": "funding",
+    "message": "insufficient wallet balance",
+    "details": {}
+  }
+}</pre>
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Type
+! Definition
+|-
+| <code>status</code>
+| style="text-align: right;"| <code>"error"</code>
+| Error marker.
+|-
+| <code>error.code</code>
+| style="text-align: right;"| string
+| Stable machine category. Unknown strings should be preserved/tolerated.
+|-
+| <code>error.message</code>
+| style="text-align: right;"| string
+| Human-readable technical diagnostic, not a stable discriminator.
+|-
+| <code>error.details</code>
+| style="text-align: right;"| JSON
+| Optional producer-defined diagnostics. Treat as untrusted.
+|}
+
+=== Canonical error code set ===
+
+{| class="wikitable"
+|-
+! Code
+! Typical meaning
+|-
+| <code>invalid_request</code>
+| Request shape, incompatible fields, bad network/version, missing referenced input.
+|-
+| <code>serde</code>
+| Serialization/deserialization failure.
+|-
+| <code>program_error</code>
+| SimplicityHL/program-level failure, including unsupported compiler version when surfaced through the program layer.
+|-
+| <code>derivation</code>
+| Key/script/address/asset derivation failure.
+|-
+| <code>try_from_int</code>
+| Integer conversion overflow/failure.
+|-
+| <code>funding</code>
+| Insufficient or unavailable wallet funds.
+|-
+| <code>invalid_signer_config</code>
+| Signer unavailable or configured with wrong key.
+|-
+| <code>invalid_response</code>
+| Runtime/adapter response contract failure.
+|-
+| <code>pset</code>
+| PSET construction/finalization failure.
+|-
+| <code>pset_blind</code>
+| PSET blinding failure.
+|-
+| <code>amount_proof_verification</code>
+| Confidential amount proof verification failure.
+|-
+| <code>invalid_finalization_steps</code>
+| Finalization sequence or witness construction failure.
+|}
+
+=== Versioning and extension rules ===
+
+# <code>abi_version</code> changes are required for incompatible request/response shape changes.
+# New enum variants SHOULD be gated by ABI version or explicit capability negotiation.
+# <code>artifacts</code> is the preferred place for producer-defined metadata that should not break older consumers.
+# Unknown request fields are rejected by the current Rust request/runtime parameter schemas; do not use unknown fields for extension.
+# Runtimes that cannot satisfy <code>simplicity_hl_version</code> MUST reject rather than silently compiling with another version.
+# A future ABI may define friendly network aliases, but wire-level matching in this ABI is by BIP-122 chain id.
+# Changes to the <code>static_values</code> <code>{value,type}</code> shape or the signature-embedding rules require an ABI update or explicit capability negotiation.
+
+== Security Considerations ==
+
+# Treat all request data as untrusted, including scripts, outpoints, finalizer source, and pubkeys.
+# Never log <code>InputUnblinding.provided.blinding_secret_key</code> or intermediate PSETs containing resolved input secrets.
+# <code>InputUnblinding.provided.blinding_secret_key</code> is not a signing key, but it can reveal confidential prevout values and should be treated as sensitive unless explicitly policy-marked as public.
+# <code>broadcast = false</code> does not mean offline/no-network; runtime may sync wallet state and fetch prevouts.
+# <code>explicit</code> outputs reveal amount and asset.
+# Outputs carrying <code>new_issuance_token</code> MUST NOT be explicit in this ABI.
+# <code>provided</code> outpoints may be spent, nonexistent, or maliciously selected; resolve/fetch before relying on them.
+# <code>lock_time</code> can be ineffective if input sequences are final.
+# SIMF <code>sig_hash_all.public_key</code> must equal the runtime signer x-only key.
+# <code>source_simf</code> must be compiled with the requested <code>simplicity_hl_version</code>; runtimes MUST NOT silently substitute a different compiler version.
+# Consumer UIs should make network and broadcast status prominent.
+# Consumers should ignore unknown <code>artifacts</code> keys and sanitize <code>error.message</code>/<code>error.details</code> before rendering.
+# Wallets MUST NOT trust self-declared app names, labels, URLs, or icons in the request payload as authenticated caller identity. Authenticated app/request identity must come from the transport/platform binding or another out-of-band trust system.
+# <code>static_values.value</code> and <code>static_values.type</code> are untrusted SimplicityHL compiler inputs. Parse and type-check them with the requested <code>simplicity_hl_version</code>; do not evaluate them with an ad hoc parser outside the compiler boundary.
+# For SIMF-finalized inputs, the resolved UTXO script pubkey must match the script pubkey derived from the requested SIMF finalizer before signing/finalization.
+
+== Rationale ==
+
+The ABI uses BIP-122/CAIP-2-style chain identifiers instead of bare network names so wallets can match requests against
+the genesis hash of the active Elements chain. This avoids ambiguity between Liquid mainnet, Liquid testnet, local Elements chains, and custom networks.
+
+<code>request_id</code> is a correlation identifier rather than replay protection because wallet state, UTXO availability,
+fee policy, and broadcast status can change between attempts. Treating the request as non-idempotent avoids giving callers
+a false guarantee that the same JSON body will always produce the same transaction.
+
+SIMF payloads are JSON objects at the wire level to make review, schema validation, and application construction easier.
+Static SIMF values use the SimplicityHL witness-style <code>{ "value": string, "type": string }</code> shape because the
+compiler, not the ABI, is responsible for parsing and type-checking Rust-like SimplicityHL literals.
+
+<code>simplicity_hl_version</code> is part of the request so the same <code>source_simf</code> is compiled by the version
+intended by the caller. This is required because different compiler versions may produce different compiled programs,
+addresses, script pubkeys, or finalization behavior.
+
+Outputs carrying <code>new_issuance_token</code> are required to be confidential in this ABI to match the current
+Liquid reissuance-token constraint. Explicit reissuance-token support can be considered later if the underlying
+validation model and ABI capability negotiation make it safe.
+
+== Backwards Compatibility ==
+
+This ELIP defines a new application/wallet ABI and does not change Elements consensus rules, peer-to-peer networking,
+transaction validity, or the PSET format. Existing wallets and applications that do not implement this ABI are unaffected.
+
+Unknown request fields are rejected by the current request/runtime schemas. Incompatible wire-shape changes require
+an <code>abi_version</code> change or explicit capability negotiation.
+
+== Reference Implementation ==
+
+No final reference implementation is specified by this draft. The auxiliary JSON Schema and examples are review aids
+for implementers, but semantic validation remains the responsibility of the wallet/runtime.
+
+The current example files are mock fixtures for reviewing the ABI wire shape. They are not final conformance vectors
+and are expected to be corrected or replaced after the first proper wallet/runtime implementation validates the full transaction-construction flow.
+
+A future implementation may include a wallet/runtime adapter, JSON Schema validation tests, SimplicityHL compiler-version
+dispatch, finalizer script-pubkey verification tests, and fixtures covering confidential issuance-token outputs.
+
+== Test Vectors and Auxiliary Files ==
+
+The auxiliary files below are intended to be committed with this draft in the <code>elip-wallet-abi/</code> subdirectory.
+After an ELIP number is assigned, the directory and links can be renamed according to editor preference.
+
+The example request and response files are mock fixtures for the current draft. They exercise the proposed JSON shape
+and schema constraints, but they are expected to be corrected or replaced after the first proper wallet/runtime implementation is available.
+
+{| class="wikitable"
+|-
+! File
+! Purpose
+|-
+| [[elip-wallet-abi/01_request_wallet_to_script.json|<code>01_request_wallet_to_script.json</code>]]
+| Simple wallet-funded build-only payment to an explicit script output using <code>network = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"</code>.
+|-
+| [[elip-wallet-abi/02_response_ok_build_only.json|<code>02_response_ok_build_only.json</code>]]
+| Success response for the build-only example, using the same <code>Bip122ChainId</code> and open-ended <code>artifacts</code>.
+|-
+| [[elip-wallet-abi/03_response_error_funding.json|<code>03_response_error_funding.json</code>]]
+| Error response with canonical <code>funding</code> code and optional diagnostic <code>details</code>.
+|-
+| [[elip-wallet-abi/04_request_simf_bip0341_issuance.json|<code>04_request_simf_bip0341_issuance.json</code>]]
+| Issuance request using a SIMF finalizer, stable <code>bip0341</code> internal key, <code>simplicity_hl_version</code>, JSON <code>arguments</code>/<code>witness</code>, <code>static_values</code> examples, <code>inflation_amount_sat</code>, and confidential <code>new_issuance_token</code> output.
+|-
+| [[elip-wallet-abi/wallet-abi-tx-create.schema.json|<code>wallet-abi-tx-create.schema.json</code>]]
+| Review JSON Schema for request/response shape. It includes the BIP-122 chain-id pattern, <code>blinding_secret_key</code>, <code>inflation_amount_sat</code>, <code>simplicity_hl_version</code>, JSON SIMF payloads, <code>static_values</code> typed literals, stable <code>bip0341</code>, and a schema-level rejection of <code>blinder = "explicit"</code> when <code>asset.type = "new_issuance_token"</code>.
+|-
+| [[elip-wallet-abi/field-reference.json|<code>field-reference.json</code>]]
+| Machine-readable field reference for implementers and UI review.
+|}
+
+== References ==
+
+These links are intentionally listed directly so reviewers do not need to search for the underlying standards or context.
+
+{| class="wikitable"
+|-
+! Topic
+! Link
+! Relevance
+|-
+| ELIP repository
+| https://github.com/ElementsProject/ELIPs
+| Repository that hosts Elements Improvement Proposals and review process context.
+|-
+| ELIP purpose and format
+| https://github.com/ElementsProject/ELIPs/blob/main/elip-0001.mediawiki
+| Defines the ELIP process, MediaWiki format, header preamble, and auxiliary file rules.
+|-
+| RFC 2119 requirement keywords
+| https://www.rfc-editor.org/rfc/rfc2119
+| Defines the normative meaning of '''MUST''', '''SHOULD''', '''MAY''', and related terms.
+|-
+| JSON Schema draft 2020-12
+| https://json-schema.org/draft/2020-12/json-schema-core
+| Version used by <code>wallet-abi-tx-create.schema.json</code>.
+|-
+| BIP-122
+| https://bips.dev/122/
+| Defines chain identity by genesis block hash for blockchain references.
+|-
+| CAIP-2
+| https://standards.chainagnostic.org/CAIPs/caip-2
+| Defines the <code>namespace:reference</code> chain-id form.
+|-
+| CAIP BIP122 namespace
+| https://namespaces.chainagnostic.org/bip122/caip2
+| Defines <code>bip122:32-character-lowercase-genesis-hash-prefix</code>.
+|-
+| BIP-340
+| https://bips.dev/340/
+| Defines Schnorr signatures and 32-byte x-only public keys used by Taproot.
+|-
+| BIP-341
+| https://bips.dev/341/
+| Defines Taproot, internal keys, script-path control blocks, and the NUMS/example internal key used by <code>bip0341</code>.
+|-
+| Elements Project
+| https://github.com/ElementsProject/elements
+| Reference implementation for Elements/Liquid chain behavior.
+|-
+| Elements <code>chainparams.cpp</code>
+| https://raw.githubusercontent.com/ElementsProject/elements/master/src/chainparams.cpp
+| Source reference for chain/network parameters such as <code>liquidv1</code>. Implementations should derive the active chain id from their node/runtime rather than trusting a hard-coded label.
+|-
+| Go Elements network parameters
+| https://pkg.go.dev/github.com/dirtyhighli/go-elements/network
+| Convenient source for Liquid, Liquid testnet, and Elements regtest example genesis hashes used in this draft.
+|-
+| SimplicityHL repository
+| https://github.com/BlockstreamResearch/SimplicityHL
+| Source project for <code>source_simf</code> and <code>simplicity_hl_version</code> context.
+|-
+| SimplicityHL witness documentation
+| https://docs.simplicity-lang.org/documentation/witness/
+| Describes <code>.wit</code> JSON files where each top-level entry has <code>value</code> and <code>type</code> string fields and names are used as <code>witness::NAME</code>.
+|-
+| SimplicityHL issue #309
+| https://github.com/BlockstreamResearch/SimplicityHL/issues/309
+| Tracks the confidential-only reissuance-token constraint motivating the <code>new_issuance_token</code> confidentiality rule.
+|-
+| Semantic Versioning 2.0.0
+| https://semver.org/
+| Informative reference for the <code>simplicity_hl_version</code> string shape; the ABI requires an exact compiler version, not a numeric JSON value.
+|}
+
+Known chain-id examples used by this ABI:
+
+{| class="wikitable"
+|-
+! Friendly label
+! Full genesis hash
+! ABI <code>network</code> value
+|-
+| Liquid mainnet (<code>liquidv1</code>)
+| <code>1466275836220db2944ca059a3a10ef6fd2ea684b0688d2c379296888a206003</code>
+| <code>bip122:1466275836220db2944ca059a3a10ef6</code>
+|-
+| Liquid testnet (<code>liquidtestnet</code>)
+| <code>a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1</code>
+| <code>bip122:a771da8e52ee6ad581ed1e9a99825e5b</code>
+|-
+| Default Elements regtest/localtest
+| <code>00902a6b70c2ca83b5d9c815d96a0e2f4202179316970d14ea1847dae5b1ca21</code>
+| <code>bip122:00902a6b70c2ca83b5d9c815d96a0e2f</code>
+|}
+
+== Appendix A: Future Work ==
+
+This appendix collects ideas that are intentionally not part of the <code>wallet-abi-0.1</code> core.
+
+=== A.1 Standardized preview artifacts ===
+
+A future ABI may standardize an <code>artifacts.preview</code> object containing wallet deltas, selected inputs, fee,
+change, confidentiality choices, and issuance effects. For <code>wallet-abi-0.1</code>, <code>artifacts</code> remains
+open-ended producer metadata.
+
+=== A.2 Transport and capability negotiation ===
+
+A future profile may define a WalletConnect, JSON-RPC, or other transport binding; capability negotiation
+for enum variants; and supported <code>simplicity_hl_version</code> discovery.
+
+=== A.3 Friendly network aliases and local-chain metadata ===
+
+The wire <code>network</code> is a BIP-122 chain id in this draft. A future profile may define friendly labels,
+policy-asset metadata, and local/custom Elements network registry entries, but those aliases must not replace genesis-hash matching in the core validation path.
+
+== Appendix B: Informative consumer/runtime implementation notes ==
+
+This appendix is not a caller-visible wire schema and is not required as provider API surface. It records one useful
+runtime implementation model for wallet providers. Transport bindings, provider session objects, UTXO-cache structure,
+and UI-state machines remain out of scope for the core ABI payload.
+
+=== B.1 <code>WalletRequestSession</code> ===
+
+{| class="wikitable"
+|-
+! Field
+! Definition
+|-
+| <code>session_id</code>
+| Opaque wallet-owned correlation ID.
+|-
+| <code>network</code>
+| BIP-122 chain id used for request validation and script derivation.
+|-
+| <code>spendable_utxos</code>
+| Deterministic spendable UTXO snapshot used for input selection within one request lifecycle.
+|}
+
+=== B.2 <code>WalletOutputRequest</code> ===
+
+{| class="wikitable"
+|-
+! Variant
+! Definition
+|-
+| <code>Receive { index }</code>
+| Deterministic zero-based receive-output index within a build pass.
+|-
+| <code>Change { index, asset_id }</code>
+| Deterministic zero-based change-output index for a concrete residual asset.
+|}
+
+=== B.3 <code>WalletOutputTemplate</code> ===
+
+{| class="wikitable"
+|-
+! Field
+! Definition
+|-
+| <code>script_pubkey</code>
+| Wallet-selected script for receive/change output.
+|-
+| <code>blinding_pubkey</code>
+| Optional blinding public key for confidential outputs.
+|}
+
+A wallet output allocator should be stable for the same <code>(session, request)</code> pair if the provider exposes
+preview/final-build behavior, but this is an implementation note rather than a separate ABI field.
+
+== Appendix C: JSON Schema ==
+
+The review schema for <code>wallet-abi-0.1</code> request/response payloads is provided as
+[[elip-wallet-abi/wallet-abi-tx-create.schema.json|<code>wallet-abi-tx-create.schema.json</code>]].

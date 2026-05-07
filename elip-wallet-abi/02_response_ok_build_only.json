@@ -1,0 +1,35 @@
+{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "status": "ok",
+  "transaction": {
+    "tx_hex": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "txid": "5f5a9b3d8a1a55cb2fbc4f61b2b7bc4f4b6a8f8ebd5d39fb7d3e8bfe8b6a1a00"
+  },
+  "artifacts": {
+    "example_note": "artifacts is producer-defined; consumers must ignore unknown keys",
+    "broadcast": false,
+    "selected_inputs": [
+      {
+        "input_id": "wallet-lbtc-funding",
+        "source": "wallet",
+        "outpoint": "0101010101010101010101010101010101010101010101010101010101010101:0",
+        "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49",
+        "amount_sat": 150000
+      }
+    ],
+    "appended_outputs": [
+      {
+        "kind": "fee",
+        "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49",
+        "amount_sat": 450
+      },
+      {
+        "kind": "change",
+        "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49",
+        "amount_sat": 49550
+      }
+    ]
+  }
+}

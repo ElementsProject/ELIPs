@@ -1,0 +1,254 @@
+[
+  {
+    "path": "TxCreateRequest.abi_version",
+    "type": "string",
+    "required": true,
+    "definition": "ABI contract version. Must equal wallet-abi-0.1."
+  },
+  {
+    "path": "TxCreateRequest.request_id",
+    "type": "uuid",
+    "required": true,
+    "definition": "Correlation identifier generated per user action. Not replay protection and not an idempotency key."
+  },
+  {
+    "path": "TxCreateRequest.network",
+    "type": "Bip122ChainId",
+    "required": true,
+    "definition": "CAIP-2-style BIP-122 chain id string, bip122:<32-lowercase-hex genesis prefix>. Must match runtime chain id before side effects."
+  },
+  {
+    "path": "TxCreateRequest.params",
+    "type": "RuntimeParams",
+    "required": true,
+    "definition": "Transaction-construction request body."
+  },
+  {
+    "path": "TxCreateRequest.broadcast",
+    "type": "boolean",
+    "required": true,
+    "definition": "Whether runtime should publish the finalized transaction. false still permits sync/fetch/validation network calls."
+  },
+  {
+    "path": "RuntimeParams.inputs",
+    "type": "InputSchema[]",
+    "required": true,
+    "definition": "Declared inputs resolved in order. Order can affect wallet selection and issuance-linked references."
+  },
+  {
+    "path": "RuntimeParams.outputs",
+    "type": "OutputSchema[]",
+    "required": true,
+    "definition": "Declared outputs materialized in order. Runtime may append fee and per-asset change outputs."
+  },
+  {
+    "path": "RuntimeParams.fee_rate_sat_kvb",
+    "type": "number",
+    "required": false,
+    "definition": "Optional finite non-negative fee rate in sat/kvB."
+  },
+  {
+    "path": "RuntimeParams.lock_time",
+    "type": "LockTime",
+    "required": false,
+    "definition": "Optional fallback locktime. Effective only when input sequence semantics activate locktime."
+  },
+  {
+    "path": "InputSchema.id",
+    "type": "string",
+    "required": true,
+    "definition": "Caller-facing label for diagnostics and review UI."
+  },
+  {
+    "path": "InputSchema.utxo_source",
+    "type": "UTXOSource",
+    "required": true,
+    "definition": "Prevout source selector: wallet-selected from filters or caller-provided outpoint."
+  },
+  {
+    "path": "InputSchema.unblinding",
+    "type": "InputUnblinding",
+    "required": true,
+    "definition": "How runtime obtains prevout values/secrets: wallet, provided blinding_secret_key, or explicit."
+  },
+  {
+    "path": "InputUnblinding.provided.blinding_secret_key",
+    "type": "SecretKey",
+    "required": "provided only",
+    "definition": "Caller-supplied input blinding secret key for prevout unblinding. This is not a spend/signing private key; handle as sensitive unless explicitly policy-marked public."
+  },
+  {
+    "path": "InputSchema.sequence",
+    "type": "u32",
+    "required": true,
+    "definition": "Bitcoin/Elements input sequence for finality, locktime, relative locktime, and RBF semantics."
+  },
+  {
+    "path": "InputSchema.issuance",
+    "type": "InputIssuance?",
+    "required": false,
+    "definition": "Optional issuance/reissuance metadata used for PSET issuance fields and issuance-linked output asset IDs."
+  },
+  {
+    "path": "InputIssuance.kind",
+    "type": "new | reissue",
+    "required": true,
+    "definition": "Issuance kind for this input."
+  },
+  {
+    "path": "InputIssuance.asset_amount_sat",
+    "type": "u64",
+    "required": true,
+    "definition": "Amount of issued/reissued asset units to mint."
+  },
+  {
+    "path": "InputIssuance.inflation_amount_sat",
+    "type": "u64",
+    "required": true,
+    "definition": "Amount of reissuance/inflation-token units to mint. Replaces token_amount_sat."
+  },
+  {
+    "path": "InputIssuance.entropy",
+    "type": "[u8; 32]",
+    "required": true,
+    "definition": "For new issuance, contract-hash entropy; for reissue, already-derived asset entropy."
+  },
+  {
+    "path": "InputSchema.finalizer",
+    "type": "FinalizerSpec",
+    "required": true,
+    "definition": "Input finalization strategy: wallet/miniscript or SimplicityHL finalizer."
+  },
+  {
+    "path": "OutputSchema.id",
+    "type": "string",
+    "required": true,
+    "definition": "Caller-facing output label for diagnostics and UI."
+  },
+  {
+    "path": "OutputSchema.amount_sat",
+    "type": "u64",
+    "required": true,
+    "definition": "Requested output amount in satoshi/base units."
+  },
+  {
+    "path": "OutputSchema.lock",
+    "type": "LockVariant",
+    "required": true,
+    "definition": "How runtime determines scriptPubKey: wallet receive template, raw script, or finalizer-derived script."
+  },
+  {
+    "path": "OutputSchema.asset",
+    "type": "AssetVariant",
+    "required": true,
+    "definition": "Explicit asset ID or issuance-derived asset/token selector."
+  },
+  {
+    "path": "OutputSchema.asset.new_issuance_token",
+    "type": "AssetVariant",
+    "required": false,
+    "definition": "Confidential reissuance/inflation token derived from a new issuance input. Outputs using this asset MUST NOT use blinder = explicit."
+  },
+  {
+    "path": "OutputSchema.blinder",
+    "type": "BlinderVariant",
+    "required": true,
+    "definition": "Output confidentiality policy: wallet blinding key, provided blinding pubkey, or explicit output."
+  },
+  {
+    "path": "FinalizerSpec.type",
+    "type": "wallet | simf",
+    "required": true,
+    "definition": "Finalization variant tag."
+  },
+  {
+    "path": "FinalizerSpec.source_simf",
+    "type": "string",
+    "required": "simf only",
+    "definition": "UTF-8 SimplicityHL source loaded/instantiated at runtime."
+  },
+  {
+    "path": "FinalizerSpec.simplicity_hl_version",
+    "type": "string",
+    "required": "simf only",
+    "definition": "Exact Cargo/SimplicityHL compiler version the runtime must use for compilation/address derivation/finalization."
+  },
+  {
+    "path": "FinalizerSpec.internal_key",
+    "type": "InternalKeySource",
+    "required": "simf only",
+    "definition": "Source for Taproot x-only internal key. Stable wallet-abi-0.1 supports only bip0341."
+  },
+  {
+    "path": "FinalizerSpec.arguments",
+    "type": "SimfArguments JSON object",
+    "required": "simf only",
+    "definition": "SIMF argument payload as a JSON object at the ABI wire level; no UTF-8 byte-array wrapper."
+  },
+  {
+    "path": "FinalizerSpec.witness",
+    "type": "SimfWitness JSON object",
+    "required": "simf only",
+    "definition": "SIMF witness payload as a JSON object at the ABI wire level; no UTF-8 byte-array wrapper."
+  },
+  {
+    "path": "TxCreateResponse.status",
+    "type": "ok | error",
+    "required": true,
+    "definition": "High-level outcome."
+  },
+  {
+    "path": "TxCreateResponse.transaction",
+    "type": "TransactionInfo?",
+    "required": "ok only",
+    "definition": "Finalized transaction hex and txid."
+  },
+  {
+    "path": "TxCreateResponse.artifacts",
+    "type": "object?",
+    "required": false,
+    "definition": "Open-ended producer metadata. Consumers must ignore unknown keys."
+  },
+  {
+    "path": "TxCreateResponse.error",
+    "type": "ErrorInfo?",
+    "required": "error only",
+    "definition": "Structured error code, technical message, and optional details."
+  },
+  {
+    "path": "FinalizerSpec.simf.arguments.static_values",
+    "type": "SimfStaticValues",
+    "required": true,
+    "definition": "Caller-known compile-time/static SIMF argument values. Map from SimplicityHL argument name to {value,type} strings; values are parsed/type-checked by the requested SimplicityHL compiler."
+  },
+  {
+    "path": "FinalizerSpec.simf.arguments.runtime_arguments",
+    "type": "object<string, RuntimeSimfValue>",
+    "required": true,
+    "definition": "Runtime-resolved SIMF argument directives, keyed by the target SimplicityHL argument name, such as deriving COLLATERAL_ASSET_ID from a selected issuance input."
+  },
+  {
+    "path": "FinalizerSpec.simf.witness.static_values",
+    "type": "SimfStaticValues",
+    "required": true,
+    "definition": "Caller-known static witness values, keyed by SimplicityHL witness name. Examples include PATH branch selectors or COLLATERAL_AMOUNT constants encoded as typed literal strings."
+  },
+  {
+    "path": "FinalizerSpec.simf.witness.runtime_arguments",
+    "type": "RuntimeSimfWitness[]",
+    "required": true,
+    "definition": "Runtime-resolved witness directives. sig_hash_all signature embedding is still TODO/draft and must be finalized before production compatibility is claimed."
+  },
+  {
+    "path": "SimfStaticValues.<name>.value",
+    "type": "string",
+    "required": true,
+    "definition": "SimplicityHL literal string, for example Right(Left((false, 10, 1000))) or 100. Numeric values remain strings, following SimplicityHL witness-file conventions."
+  },
+  {
+    "path": "SimfStaticValues.<name>.type",
+    "type": "string",
+    "required": true,
+    "definition": "SimplicityHL type annotation string, for example u64, Signature, (bool, u64), or Either<...>."
+  }
+]

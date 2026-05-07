@@ -1,0 +1,51 @@
+{
+  "abi_version": "wallet-abi-0.1",
+  "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
+  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "params": {
+    "inputs": [
+      {
+        "id": "wallet-lbtc-funding",
+        "utxo_source": {
+          "wallet": {
+            "filter": {
+              "asset": {
+                "exact": {
+                  "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49"
+                }
+              },
+              "amount": {
+                "min": {
+                  "amount_sat": 150000
+                }
+              },
+              "lock": "none"
+            }
+          }
+        },
+        "unblinding": "wallet",
+        "sequence": 4294967295,
+        "finalizer": {
+          "type": "wallet"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "id": "merchant-payment",
+        "amount_sat": 100000,
+        "lock": {
+          "type": "script",
+          "script": "0014aabbccddeeff00112233445566778899aabbccdd"
+        },
+        "asset": {
+          "type": "asset_id",
+          "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49"
+        },
+        "blinder": "explicit"
+      }
+    ],
+    "fee_rate_sat_kvb": 1000.0
+  },
+  "broadcast": false
+}
