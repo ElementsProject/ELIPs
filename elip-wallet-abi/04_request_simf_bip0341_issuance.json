@@ -145,7 +145,7 @@
         "blinder": "wallet"
       }
     ],
-    "fee_rate_sat_kvb": 1000,
+    "fee_rate_sat_kvb": 0.1,
     "lock_time": {
       "blocks": 900000
     }

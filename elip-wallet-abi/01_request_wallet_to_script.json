@@ -45,7 +45,7 @@
         "blinder": "explicit"
       }
     ],
-    "fee_rate_sat_kvb": 1000
+    "fee_rate_sat_kvb": 0.1
   },
   "broadcast": false
 }

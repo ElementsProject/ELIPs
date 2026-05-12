@@ -43,7 +43,7 @@
   },
   {
     "path": "RuntimeParams.fee_rate_sat_kvb",
-    "type": "number",
+    "type": "float",
     "required": false,
     "definition": "Optional finite non-negative fee rate in sat/kvB."
   },

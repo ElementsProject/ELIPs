@@ -283,7 +283,7 @@ MUST ensure that the account chain prefix matches <code>TxCreateRequest.chain_id
 | Declared outputs, materialized in declaration order. Runtime may append fee and change outputs.
 |-
 | <code>fee_rate_sat_kvb</code>
-| style="text-align: right;"| number
+| style="text-align: right;"| float
 | style="text-align: center;"| no
 | Fee-rate override in sat/kvB. MUST be finite and non-negative. If omitted, runtime policy applies.
 |-

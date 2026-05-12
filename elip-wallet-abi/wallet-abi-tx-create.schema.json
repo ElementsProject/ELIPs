@@ -825,7 +825,8 @@
         },
         "fee_rate_sat_kvb": {
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Finite non-negative floating-point fee rate in sat/kvB."
         },
         "lock_time": {
           "$ref": "#/$defs/LockTime"
