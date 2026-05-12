@@ -12,10 +12,10 @@
     "definition": "Correlation identifier generated per user action. Not replay protection and not an idempotency key."
   },
   {
-    "path": "TxCreateRequest.network",
-    "type": "Bip122ChainId",
+    "path": "TxCreateRequest.chain_id",
+    "type": "Elip144ChainId",
     "required": true,
-    "definition": "CAIP-2-style BIP-122 chain id string, bip122:<32-lowercase-hex genesis prefix>. Must match runtime chain id before side effects."
+    "definition": "ELIP-0144 chain_id string, bip122:<first 32 characters of the network genesis block hash as lowercase hex>. Must match runtime chain ID before side effects."
   },
   {
     "path": "TxCreateRequest.params",
@@ -27,7 +27,7 @@
     "path": "TxCreateRequest.broadcast",
     "type": "boolean",
     "required": true,
-    "definition": "Whether runtime should publish the finalized transaction. false still permits sync/fetch/validation network calls."
+    "definition": "Whether runtime should publish the finalized transaction. false still permits sync/fetch/validation calls."
   },
   {
     "path": "RuntimeParams.inputs",
@@ -97,15 +97,15 @@
   },
   {
     "path": "InputIssuance.asset_amount_sat",
-    "type": "u64",
+    "type": "u64 decimal string",
     "required": true,
-    "definition": "Amount of issued/reissued asset units to mint."
+    "definition": "Amount of issued/reissued asset units to mint, encoded as a decimal string."
   },
   {
     "path": "InputIssuance.inflation_amount_sat",
-    "type": "u64",
+    "type": "u64 decimal string",
     "required": true,
-    "definition": "Amount of reissuance/inflation-token units to mint. Replaces token_amount_sat."
+    "definition": "Amount of reissuance/inflation-token units to mint, encoded as a decimal string. Replaces token_amount_sat."
   },
   {
     "path": "InputIssuance.entropy",
@@ -127,9 +127,9 @@
   },
   {
     "path": "OutputSchema.amount_sat",
-    "type": "u64",
+    "type": "u64 decimal string",
     "required": true,
-    "definition": "Requested output amount in satoshi/base units."
+    "definition": "Requested output amount in satoshi/base units, encoded as a decimal string."
   },
   {
     "path": "OutputSchema.lock",
@@ -141,13 +141,13 @@
     "path": "OutputSchema.asset",
     "type": "AssetVariant",
     "required": true,
-    "definition": "Explicit asset ID or issuance-derived asset/token selector."
+    "definition": "ELIP-0144 asset_id string or issuance-derived asset/token selector. Explicit ELIP-0144 asset_ids must have a chain_id matching TxCreateRequest.chain_id."
   },
   {
     "path": "OutputSchema.asset.new_issuance_token",
     "type": "AssetVariant",
     "required": false,
-    "definition": "Confidential reissuance/inflation token derived from a new issuance input. Outputs using this asset MUST NOT use blinder = explicit."
+    "definition": "Confidential reissuance/inflation token derived from a new issuance input. The resulting ELIP-0144 asset_id uses the request chain_id and the derived asset_reference. Outputs using this asset MUST NOT use blinder = explicit."
   },
   {
     "path": "OutputSchema.blinder",

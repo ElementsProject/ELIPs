@@ -1,7 +1,7 @@
 {
   "abi_version": "wallet-abi-0.1",
   "request_id": "216113a8-8eb7-4d1f-8573-8b6ed04f4ad5",
-  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "chain_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
   "params": {
     "inputs": [
       {
@@ -11,12 +11,12 @@
             "filter": {
               "asset": {
                 "exact": {
-                  "asset_id": "144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49"
+                  "asset_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elip144:144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49"
                 }
               },
               "amount": {
                 "min": {
-                  "amount_sat": 250000
+                  "amount_sat": "250000"
                 }
               },
               "lock": "none"
@@ -27,8 +27,8 @@
         "sequence": 4294967294,
         "issuance": {
           "kind": "new",
-          "asset_amount_sat": 1,
-          "inflation_amount_sat": 1,
+          "asset_amount_sat": "1",
+          "inflation_amount_sat": "1",
           "entropy": [
             7,
             7,
@@ -72,7 +72,7 @@
     "outputs": [
       {
         "id": "issued-asset-to-simf-lock",
-        "amount_sat": 1,
+        "amount_sat": "1",
         "lock": {
           "type": "finalizer",
           "finalizer": {
@@ -134,7 +134,7 @@
       },
       {
         "id": "issued-token-to-wallet",
-        "amount_sat": 1,
+        "amount_sat": "1",
         "lock": {
           "type": "wallet"
         },
@@ -145,9 +145,9 @@
         "blinder": "wallet"
       }
     ],
-    "fee_rate_sat_kvb": 1000.0,
+    "fee_rate_sat_kvb": 1000,
     "lock_time": {
-      "Blocks": 900000
+      "blocks": 900000
     }
   },
   "broadcast": true

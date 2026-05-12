@@ -18,7 +18,7 @@
 
 <code>wallet-abi-0.1</code> defines a JSON request/response protocol for transaction construction. The caller declares
 intended inputs, outputs, fee hints, locktime hints, issuance metadata, and finalization rules. The wallet/runtime
-validates the request against its active BIP-122/CAIP-2 chain identifier and wallet state, opens a request-scoped
+validates the request against its active ELIP-0144 <code>chain_id</code> and wallet state, opens a request-scoped
 wallet snapshot, resolves wallet-owned and caller-provided prevouts, materializes declared outputs, appends fee/change
 outputs as needed, signs/finalizes inputs, optionally broadcasts, and returns either a finalized transaction or a structured error.
 
@@ -86,8 +86,14 @@ The words '''MUST''', '''SHOULD''', '''MAY''', and '''MUST NOT''' are used in th
 | Internal key source
 | Selector that returns a Taproot/BIP340 x-only public key for control-block/script derivation.
 |-
-| BIP-122 chain id
-| A genesis-hash-based chain identifier represented in this ABI as a CAIP-2-style <code>bip122:32-lowercase-hex</code> string.
+| ELIP-0144 chain ID
+| The <code>chain_id</code> string defined by ELIP-0144, e.g. <code>bip122:&lt;32-lowercase-hex&gt;</code>.
+|-
+| ELIP-0144 asset ID
+| The <code>asset_id</code> string defined by ELIP-0144, encoded as <code>chain_id/elip144:asset_reference</code>.
+|-
+| Asset reference
+| The raw 32-byte Elements asset identifier carried inside an ELIP-0144 asset ID after <code>/elip144:</code>. It is used internally when materializing transaction outputs and SIMF <code>u256</code> values.
 |-
 | Input blinding secret key
 | Secret key material used to unblind a confidential prevout. It is not a wallet signing key or spend authorization key.
@@ -126,8 +132,8 @@ A wallet UI SHOULD present, before approval:
 | App/request identity
 | Helps the user connect request to the initiating action.
 |-
-| <code>network</code>
-| Prevents Liquid mainnet/testnet/localtest confusion. Show the BIP-122 chain id and, if known, a friendly network label.
+| <code>chain_id</code>
+| Prevents Liquid mainnet/testnet/regtest confusion. Show the ELIP-0144 chain ID and, if known, a friendly network label.
 |-
 | <code>request_id</code>
 | Helps support/debug correlation. It MUST NOT be described as replay protection.
@@ -186,11 +192,11 @@ The runtime SHOULD provide deterministic behavior only within this narrower boun
 # Payloads are JSON objects unless a variant is explicitly serialized as a string.
 # Enum variants use <code>snake_case</code>.
 # <code>TxCreateRequest</code> and <code>RuntimeParams</code> reject unknown fields in the attached Rust schema.
-# Numeric satoshi amounts are unsigned 64-bit values. JavaScript callers SHOULD avoid unsafe integer conversion for values above <code>2^53 - 1</code>.
+# Numeric satoshi amounts are unsigned 64-bit values encoded as decimal JSON strings, with no leading zeroes except <code>"0"</code>.
 # Byte-array fields, such as issuance <code>entropy</code>, are serialized as JSON arrays of integers from 0 to 255.
 # <code>FinalizerSpec::Simf.arguments</code> and <code>FinalizerSpec::Simf.witness</code> are JSON objects.
 # Hex fields are lowercase by convention, but consumers SHOULD accept uppercase only if their underlying parsers do.
-# <code>network</code> is a BIP-122/CAIP-2-style chain id string of the form <code>bip122:32-lowercase-hex</code>.
+# <code>chain_id</code> and explicit <code>asset_id</code> values MUST use the ELIP-0144 wire shapes.
 # Secrets, including provided input blinding secret keys and intermediate PSET material, MUST NOT be logged.
 
 === Request envelope: <code>TxCreateRequest</code> ===
@@ -198,7 +204,7 @@ The runtime SHOULD provide deterministic behavior only within this narrower boun
 <pre>{
   "abi_version": "wallet-abi-0.1",
   "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
-  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "chain_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
   "params": { "inputs": [], "outputs": [] },
   "broadcast": false
 }</pre>
@@ -219,10 +225,10 @@ The runtime SHOULD provide deterministic behavior only within this narrower boun
 | style="text-align: center;"| yes
 | Caller-generated correlation identifier. Generate fresh per user action. Not replay protection.
 |-
-| <code>network</code>
-| style="text-align: right;"| <code>Bip122ChainId</code>
+| <code>chain_id</code>
+| style="text-align: right;"| <code>Elip144ChainId</code>
 | style="text-align: center;"| yes
-| Target Elements/Liquid chain id. MUST match the runtime chain id before side effects.
+| Target Elements/Liquid chain ID as defined by ELIP-0144. MUST match the runtime chain ID before side effects.
 |-
 | <code>params</code>
 | style="text-align: right;"| <code>RuntimeParams</code>
@@ -235,38 +241,27 @@ The runtime SHOULD provide deterministic behavior only within this narrower boun
 | <code>true</code> means publish through wallet broadcaster after finalization. <code>false</code> means build/finalize only; runtime may still sync/fetch.
 |}
 
-==== <code>Bip122ChainId</code> ====
+==== <code>Elip144ChainId</code> ====
 
-<code>network</code> MUST use the CAIP-2 BIP122 namespace wire shape derived from the BIP-122 chain-id concept:
+<code>chain_id</code> MUST use the chain ID wire shape defined by ELIP-0144:
 
 <pre>bip122:00000000000000000000000000000000</pre>
-where <code>genesis-prefix</code> is the first 16 bytes of the chain genesis block hash, encoded as 32 lowercase hex
-characters. The runtime MUST derive its active chain id from the active Elements node or equivalent runtime context
-and reject a request whose <code>network</code> does not match.
+where the reference is the first 32 characters of the network genesis block hash. The runtime MUST derive its active
+chain ID from the active Elements node or equivalent runtime context and reject a request whose <code>chain_id</code> does
+not match.
 
-Known Liquid/Elements examples:
+==== <code>Elip144AssetId</code> ====
 
-{| class="wikitable"
-|-
-! Network
-! Full genesis hash
-! ABI <code>network</code> value
-|-
-| Liquid mainnet (<code>liquidv1</code>)
-| <code>1466275836220db2944ca059a3a10ef6fd2ea684b0688d2c379296888a206003</code>
-| <code>bip122:1466275836220db2944ca059a3a10ef6</code>
-|-
-| Liquid testnet (<code>liquidtestnet</code>)
-| <code>a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1</code>
-| <code>bip122:a771da8e52ee6ad581ed1e9a99825e5b</code>
-|-
-| Default Elements regtest/localtest
-| <code>00902a6b70c2ca83b5d9c815d96a0e2f4202179316970d14ea1847dae5b1ca21</code>
-| <code>bip122:00902a6b70c2ca83b5d9c815d96a0e2f</code>
-|}
+Explicit caller-provided asset IDs MUST use the ELIP-0144 asset ID wire shape:
 
-The ABI does not rely on bare strings such as <code>liquid</code>, <code>testnet-liquid</code>, or
-<code>localtest-liquid</code>. Implementations MAY display friendly labels, but matching MUST be done against the chain id.
+<pre>bip122:00000000000000000000000000000000/elip144:0000000000000000000000000000000000000000000000000000000000000000</pre>
+
+The part before <code>/elip144:</code> is the ELIP-0144 <code>chain_id</code>. It MUST equal <code>TxCreateRequest.chain_id</code>.
+The part after <code>/elip144:</code> is the 32-byte Elements asset reference encoded as 64 lowercase hex characters.
+Raw asset references are not accepted as explicit caller-provided asset identifiers in this ABI.
+
+Transport profiles that expose account identity SHOULD use the ELIP-0144 account ID form <code>chain_id:dwid</code> and
+MUST ensure that the account chain prefix matches <code>TxCreateRequest.chain_id</code>.
 
 === Runtime parameters: <code>RuntimeParams</code> ===
 
@@ -385,11 +380,11 @@ or
 |-
 | <code>asset</code>
 | <code>"none"</code> or <code>{"exact":{"asset_id"}}</code>
-| No asset constraint, or exact asset match.
+| No asset constraint, or exact ELIP-0144 asset ID match. The asset ID chain prefix MUST match <code>TxCreateRequest.chain_id</code>.
 |-
 | <code>amount</code>
 | <code>"none"</code>, <code>{"exact":{"amount_sat"}}</code>, <code>{"min":{"amount_sat"}}</code>
-| No amount constraint, exact amount, or minimum amount.
+| No amount constraint, exact amount, or minimum amount. <code>amount_sat</code> is a u64 decimal string.
 |-
 | <code>lock</code>
 | <code>"none"</code> or <code>{"script":{"script"}}</code>
@@ -426,11 +421,11 @@ or
 | One of <code>"new"</code> or <code>"reissue"</code>.
 |-
 | <code>asset_amount_sat</code>
-| style="text-align: right;"| u64
+| style="text-align: right;"| u64 decimal string
 | Amount of issued/reissued asset units to mint.
 |-
 | <code>inflation_amount_sat</code>
-| style="text-align: right;"| u64
+| style="text-align: right;"| u64 decimal string
 | Amount of reissuance/inflation-token units to mint.
 |-
 | <code>entropy</code>
@@ -439,7 +434,7 @@ or
 |}
 
 Issuance-derived outputs reference inputs by positional <code>input_index</code>. Reordering inputs changes
-the derived asset IDs. If a new issuance mints <code>inflation_amount_sat > 0</code>, outputs that carry the derived
+the derived asset references and therefore the derived ELIP-0144 asset IDs. If a new issuance mints a nonzero <code>inflation_amount_sat</code>, outputs that carry the derived
 inflation token must satisfy the confidentiality rule in [[#AssetVariant|AssetVariant]].
 
 === Output schema: <code>OutputSchema</code> ===
@@ -457,7 +452,7 @@ inflation token must satisfy the confidentiality rule in [[#AssetVariant|AssetVa
 | Caller label for diagnostics/UI.
 |-
 | <code>amount_sat</code>
-| style="text-align: right;"| u64
+| style="text-align: right;"| u64 decimal string
 | style="text-align: center;"| yes
 | Requested output amount.
 |-
@@ -506,16 +501,16 @@ inflation token must satisfy the confidentiality rule in [[#AssetVariant|AssetVa
 ! Definition
 |-
 | <code>asset_id</code>
-| Caller-provided asset ID.
+| Caller-provided ELIP-0144 asset ID. The <code>chain_id</code> prefix MUST equal <code>TxCreateRequest.chain_id</code>.
 |-
 | <code>new_issuance_asset</code>
-| Asset ID derived from a <code>new</code> issuance input.
+| ELIP-0144 asset ID derived from a <code>new</code> issuance input using <code>TxCreateRequest.chain_id</code> and the derived asset reference.
 |-
 | <code>new_issuance_token</code>
-| Confidential reissuance/inflation-token ID derived from a <code>new</code> issuance input.
+| Confidential reissuance/inflation-token ELIP-0144 asset ID derived from a <code>new</code> issuance input using <code>TxCreateRequest.chain_id</code> and the derived token asset reference.
 |-
 | <code>re_issuance_asset</code>
-| Asset ID derived from a <code>reissue</code> input.
+| ELIP-0144 asset ID derived from a <code>reissue</code> input using <code>TxCreateRequest.chain_id</code> and the reissued asset reference.
 |}
 
 <code>new_issuance_asset</code> and <code>new_issuance_token</code> require <code>params.inputs[input_index].issuance.kind == "new"</code>.
@@ -653,8 +648,8 @@ The exact accepted names and types are defined by <code>source_simf</code> and t
 ==== <code>runtime_arguments</code> ====
 
 <code>runtime_arguments</code> carries directives for values the app cannot know at request-construction time.
-Examples include an issued asset ID that depends on the wallet-selected issuance input, a confidential reissuance
-token ID, or a transaction signature that depends on the final transaction sighash.
+Examples include an issued asset reference that depends on the wallet-selected issuance input, a confidential
+reissuance-token asset reference, or a transaction signature that depends on the final transaction sighash.
 
 For <code>FinalizerSpec::Simf.arguments</code>, <code>runtime_arguments</code> is an object keyed by target SimplicityHL argument names:
 
@@ -675,10 +670,10 @@ Supported runtime argument directives:
 ! Definition
 |-
 | <code>new_issuance_asset</code>
-| Resolve a <code>u256</code> value from the issued asset ID of a new issuance input.
+| Resolve a <code>u256</code> value from the issued asset reference of a new issuance input.
 |-
 | <code>new_issuance_token</code>
-| Resolve a <code>u256</code> value from the confidential reissuance/inflation-token ID of a new issuance input.
+| Resolve a <code>u256</code> value from the confidential reissuance/inflation-token asset reference of a new issuance input.
 |}
 
 For <code>FinalizerSpec::Simf.witness</code>, <code>runtime_arguments</code> is an array of witness directives:
@@ -709,11 +704,12 @@ A conforming runtime MAY process a request in this order:
 
 <ol>
 <li>Decode JSON and reject unknown envelope/runtime fields.</li>
-<li>Validate <code>abi_version</code> and <code>network</code> against runtime context.</li>
+<li>Validate <code>abi_version</code> and <code>chain_id</code> against runtime context.</li>
 <li>Open one wallet request session.</li>
 <li>Resolve declared inputs in order.</li>
 <li>For any SIMF-finalized input, compile the requested <code>source_simf</code> with <code>simplicity_hl_version</code>, derive the expected finalizer script pubkey, and reject if the resolved UTXO script pubkey does not match.</li>
 <li>Resolve issuance metadata for inputs and any issuance-linked output asset IDs.</li>
+<li>For every explicit ELIP-0144 <code>asset_id</code>, verify that the asset chain prefix equals <code>TxCreateRequest.chain_id</code>, then extract the <code>asset_reference</code> for transaction construction.</li>
 <li>Materialize declared outputs in order.</li>
 <li>Estimate fee and balance supply/demand.</li>
 <li>Append wallet funding inputs if needed.</li>
@@ -734,7 +730,7 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 <pre>{
   "abi_version": "wallet-abi-0.1",
   "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
-  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "chain_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
   "status": "ok",
   "transaction": {
     "tx_hex": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -756,9 +752,9 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 | style="text-align: right;"| UUID
 | Copied from request.
 |-
-| <code>network</code>
-| style="text-align: right;"| <code>Bip122ChainId</code>
-| Copied/confirmed network context.
+| <code>chain_id</code>
+| style="text-align: right;"| <code>Elip144ChainId</code>
+| Copied/confirmed chain context.
 |-
 | <code>status</code>
 | style="text-align: right;"| <code>"ok"</code>
@@ -782,7 +778,7 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 <pre>{
   "abi_version": "wallet-abi-0.1",
   "request_id": "0d6d53cd-a040-4f0c-8d28-c67b6608fb14",
-  "network": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+  "chain_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
   "status": "error",
   "error": {
     "code": "funding",
@@ -821,7 +817,7 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 ! Typical meaning
 |-
 | <code>invalid_request</code>
-| Request shape, incompatible fields, bad network/version, missing referenced input.
+| Request shape, incompatible fields, bad chain/version, missing referenced input.
 |-
 | <code>serde</code>
 | Serialization/deserialization failure.
@@ -864,7 +860,7 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 # <code>artifacts</code> is the preferred place for producer-defined metadata that does not break older consumers.
 # Unknown request fields are rejected by the current Rust request/runtime parameter schemas; do not use unknown fields for extension.
 # Runtimes that cannot satisfy <code>simplicity_hl_version</code> MUST reject rather than silently compiling with another version.
-# A future ABI may define friendly network aliases, but wire-level matching in this ABI is by BIP-122 chain id.
+# A future ABI may define friendly network aliases, but wire-level matching in this ABI is by ELIP-0144 <code>chain_id</code>.
 # Changes to the <code>static_values</code> <code>{value,type}</code> shape or the signature-embedding rules require an ABI update or explicit capability negotiation.
 
 == Security Considerations ==
@@ -879,7 +875,7 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 # <code>lock_time</code> can be ineffective if input sequences are final.
 # SIMF <code>sig_hash_all.public_key</code> must equal the runtime signer x-only key.
 # <code>source_simf</code> must be compiled with the requested <code>simplicity_hl_version</code>; runtimes MUST NOT silently substitute a different compiler version.
-# Consumer UIs SHOULD make network and broadcast status prominent.
+# Consumer UIs SHOULD make chain ID and broadcast status prominent.
 # Consumers SHOULD ignore unknown <code>artifacts</code> keys and sanitize <code>error.message</code>/<code>error.details</code> before rendering.
 # Wallets MUST NOT trust self-declared app names, labels, URLs, or icons in the request payload as authenticated caller identity. Authenticated app/request identity must come from the transport/platform binding or another out-of-band trust system.
 # <code>static_values.value</code> and <code>static_values.type</code> are untrusted SimplicityHL compiler inputs. Parse and type-check them with the requested <code>simplicity_hl_version</code>; do not evaluate them with an ad hoc parser outside the compiler boundary.
@@ -887,8 +883,17 @@ The returned <code>TxCreateResponse</code> remains the only authoritative result
 
 == Rationale ==
 
-The ABI uses BIP-122/CAIP-2-style chain identifiers instead of bare network names so wallets can match requests against
-the genesis hash of the active Elements chain. This avoids ambiguity between Liquid mainnet, Liquid testnet, local Elements chains, and custom networks.
+The ABI uses ELIP-0144 <code>chain_id</code> values instead of bare network names so wallets can match requests against
+the identity of the active Elements chain. This avoids ambiguity between Liquid mainnet, Liquid testnet, Liquid regtest, and custom networks.
+
+Explicit caller-provided assets also use ELIP-0144 <code>asset_id</code> values. This lets wallet-connection transports,
+review UIs, and cross-chain applications use one asset identifier syntax instead of translating between a Wallet ABI
+asset format and the ELIP-0144 format. The runtime still extracts the raw Elements <code>asset_reference</code> when it
+constructs transaction outputs or fills SIMF <code>u256</code> arguments.
+
+Satoshi amounts are encoded as decimal strings so JSON parsers in JavaScript and other environments do not lose
+precision for values above their native safe-integer range. The string form preserves the full unsigned 64-bit domain
+without requiring a binary encoding or language-specific bigint extension at the ABI boundary.
 
 <code>request_id</code> is a correlation identifier rather than replay protection because wallet state, UTXO availability,
 fee policy, and broadcast status can change between attempts. Treating the request as non-idempotent avoids giving callers
@@ -956,10 +961,10 @@ and schema constraints, but they are expected to be corrected or replaced after 
 ! Purpose
 |-
 | [[elip-wallet-abi/01_request_wallet_to_script.json|<code>01_request_wallet_to_script.json</code>]]
-| Simple wallet-funded build-only payment to an explicit script output using <code>network = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"</code>.
+| Simple wallet-funded build-only payment to an explicit script output using <code>chain_id = "bip122:a771da8e52ee6ad581ed1e9a99825e5b"</code> and ELIP-0144 asset IDs.
 |-
 | [[elip-wallet-abi/02_response_ok_build_only.json|<code>02_response_ok_build_only.json</code>]]
-| Success response for the build-only example, using the same <code>Bip122ChainId</code> and open-ended <code>artifacts</code>.
+| Success response for the build-only example, using the same <code>Elip144ChainId</code> and open-ended <code>artifacts</code>.
 |-
 | [[elip-wallet-abi/03_response_error_funding.json|<code>03_response_error_funding.json</code>]]
 | Error response with canonical <code>funding</code> code and optional diagnostic <code>details</code>.
@@ -968,7 +973,7 @@ and schema constraints, but they are expected to be corrected or replaced after 
 | Issuance request using a SIMF finalizer, stable <code>bip0341</code> internal key, <code>simplicity_hl_version</code>, JSON <code>arguments</code>/<code>witness</code>, <code>static_values</code> examples, <code>inflation_amount_sat</code>, and confidential <code>new_issuance_token</code> output.
 |-
 | [[elip-wallet-abi/wallet-abi-tx-create.schema.json|<code>wallet-abi-tx-create.schema.json</code>]]
-| Complete JSON Schema for request/response shape. It includes the BIP-122 chain-id pattern, <code>blinding_secret_key</code>, <code>inflation_amount_sat</code>, <code>simplicity_hl_version</code>, JSON SIMF payloads, <code>static_values</code> typed literals, stable <code>bip0341</code>, and a schema-level rejection of <code>blinder = "explicit"</code> when <code>asset.type = "new_issuance_token"</code>.
+| Complete JSON Schema for request/response shape. It includes ELIP-0144 chain and asset ID patterns, decimal-string u64 amounts, <code>blinding_secret_key</code>, <code>inflation_amount_sat</code>, <code>simplicity_hl_version</code>, JSON SIMF payloads, <code>static_values</code> typed literals, stable <code>bip0341</code>, and a schema-level rejection of <code>blinder = "explicit"</code> when <code>asset.type = "new_issuance_token"</code>.
 |-
 | [[elip-wallet-abi/field-reference.json|<code>field-reference.json</code>]]
 | Machine-readable field reference for implementers and UI review.
@@ -1028,6 +1033,10 @@ These links are intentionally listed directly so reviewers do not need to search
 | https://github.com/ElementsProject/ELIPs/blob/main/elip-0001.mediawiki
 | Defines the ELIP process, MediaWiki format, header preamble, and auxiliary file rules.
 |-
+| ELIP-0144
+| https://github.com/ElementsProject/ELIPs/blob/main/elip-0144.mediawiki
+| Defines the Liquid account ID, chain ID, and asset ID syntax used by this ABI.
+|-
 | RFC 2119 requirement keywords
 | https://www.rfc-editor.org/rfc/rfc2119
 | Defines the normative meaning of '''MUST''', '''SHOULD''', '''MAY''', and related terms.
@@ -1043,6 +1052,10 @@ These links are intentionally listed directly so reviewers do not need to search
 | CAIP-2
 | https://standards.chainagnostic.org/CAIPs/caip-2
 | Defines the <code>namespace:reference</code> chain-id form.
+|-
+| CAIP-19
+| https://standards.chainagnostic.org/CAIPs/caip-19
+| Defines the chain-agnostic asset ID shape adapted by ELIP-0144.
 |-
 | CAIP BIP122 namespace
 | https://namespaces.chainagnostic.org/bip122/caip2
@@ -1060,14 +1073,6 @@ These links are intentionally listed directly so reviewers do not need to search
 | https://github.com/ElementsProject/elements
 | Reference implementation for Elements/Liquid chain behavior.
 |-
-| Elements <code>chainparams.cpp</code>
-| https://raw.githubusercontent.com/ElementsProject/elements/master/src/chainparams.cpp
-| Source reference for chain/network parameters such as <code>liquidv1</code>. Implementations derive the active chain id from their node/runtime rather than trusting a hard-coded label.
-|-
-| Go Elements network parameters
-| https://pkg.go.dev/github.com/dirtyhighli/go-elements/network
-| Convenient source for Liquid, Liquid testnet, and Elements regtest example genesis hashes used in this draft.
-|-
 | SimplicityHL repository
 | https://github.com/BlockstreamResearch/SimplicityHL
 | Source project for <code>source_simf</code> and <code>simplicity_hl_version</code> context.
@@ -1083,27 +1088,6 @@ These links are intentionally listed directly so reviewers do not need to search
 | Semantic Versioning 2.0.0
 | https://semver.org/
 | Informative reference for the <code>simplicity_hl_version</code> string shape; the ABI requires an exact compiler version, not a numeric JSON value.
-|}
-
-Known chain-id examples used by this ABI:
-
-{| class="wikitable"
-|-
-! Friendly label
-! Full genesis hash
-! ABI <code>network</code> value
-|-
-| Liquid mainnet (<code>liquidv1</code>)
-| <code>1466275836220db2944ca059a3a10ef6fd2ea684b0688d2c379296888a206003</code>
-| <code>bip122:1466275836220db2944ca059a3a10ef6</code>
-|-
-| Liquid testnet (<code>liquidtestnet</code>)
-| <code>a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1</code>
-| <code>bip122:a771da8e52ee6ad581ed1e9a99825e5b</code>
-|-
-| Default Elements regtest/localtest
-| <code>00902a6b70c2ca83b5d9c815d96a0e2f4202179316970d14ea1847dae5b1ca21</code>
-| <code>bip122:00902a6b70c2ca83b5d9c815d96a0e2f</code>
 |}
 
 == Appendix A: Future Work ==
@@ -1123,8 +1107,8 @@ for enum variants; and supported <code>simplicity_hl_version</code> discovery.
 
 === A.3 Friendly network aliases and local-chain metadata ===
 
-The wire <code>network</code> is a BIP-122 chain id in this draft. A future profile may define friendly labels,
-policy-asset metadata, and local/custom Elements network registry entries, but those aliases must not replace genesis-hash matching in the core validation path.
+The wire <code>chain_id</code> is the ELIP-0144 chain ID in this draft. A future profile may define friendly labels,
+policy-asset metadata, and local/custom Elements network registry entries, but those aliases must not replace ELIP-0144 chain ID matching in the core validation path.
 
 === A.4 Explicit reissuance-token support ===
 
@@ -1152,8 +1136,8 @@ and UI-state machines remain out of scope for the core ABI payload.
 | <code>session_id</code>
 | Opaque wallet-owned correlation ID.
 |-
-| <code>network</code>
-| BIP-122 chain id used for request validation and script derivation.
+| <code>chain_id</code>
+| ELIP-0144 chain ID used for request validation and script derivation.
 |-
 | <code>spendable_utxos</code>
 | Deterministic spendable UTXO snapshot used for input selection within one request lifecycle.
@@ -1170,7 +1154,7 @@ and UI-state machines remain out of scope for the core ABI payload.
 | Deterministic zero-based receive-output index within a build pass.
 |-
 | <code>Change { index, asset_id }</code>
-| Deterministic zero-based change-output index for a concrete residual asset.
+| Deterministic zero-based change-output index for a concrete residual ELIP-0144 asset ID.
 |}
 
 === B.3 <code>WalletOutputTemplate</code> ===
