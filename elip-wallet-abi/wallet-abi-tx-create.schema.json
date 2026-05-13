@@ -472,7 +472,7 @@
           }
         }
       ],
-      "description": "Runtime-resolved SIMF witness directive. sig_hash_all is a draft/TODO signature-embedding directive."
+      "description": "Runtime-resolved SIMF witness directive. sig_hash_all embeds a runtime-generated signature into the named witness slot."
     },
     "SimfArguments": {
       "type": "object",
@@ -515,6 +515,39 @@
         }
       }
     },
+    "SimfFinalizerSpec": {
+      "type": "object",
+      "required": [
+        "type",
+        "source_simf",
+        "simplicity_hl_version",
+        "internal_key",
+        "arguments",
+        "witness"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "simf"
+        },
+        "source_simf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "simplicity_hl_version": {
+          "$ref": "#/$defs/SimplicityHLVersion"
+        },
+        "internal_key": {
+          "$ref": "#/$defs/InternalKeySource"
+        },
+        "arguments": {
+          "$ref": "#/$defs/SimfArguments"
+        },
+        "witness": {
+          "$ref": "#/$defs/SimfWitness"
+        }
+      }
+    },
     "FinalizerSpec": {
       "oneOf": [
         {
@@ -530,36 +563,7 @@
           }
         },
         {
-          "type": "object",
-          "required": [
-            "type",
-            "source_simf",
-            "simplicity_hl_version",
-            "internal_key",
-            "arguments",
-            "witness"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "const": "simf"
-            },
-            "source_simf": {
-              "type": "string"
-            },
-            "simplicity_hl_version": {
-              "$ref": "#/$defs/SimplicityHLVersion"
-            },
-            "internal_key": {
-              "$ref": "#/$defs/InternalKeySource"
-            },
-            "arguments": {
-              "$ref": "#/$defs/SimfArguments"
-            },
-            "witness": {
-              "$ref": "#/$defs/SimfWitness"
-            }
-          }
+          "$ref": "#/$defs/SimfFinalizerSpec"
         }
       ]
     },
@@ -636,7 +640,7 @@
               "const": "finalizer"
             },
             "finalizer": {
-              "$ref": "#/$defs/FinalizerSpec"
+              "$ref": "#/$defs/SimfFinalizerSpec"
             }
           }
         }

@@ -8,7 +8,7 @@
     "message": "insufficient wallet balance for asset bip122:a771da8e52ee6ad581ed1e9a99825e5b/elip144:144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49",
     "details": {
       "requested_asset_id": "bip122:a771da8e52ee6ad581ed1e9a99825e5b/elip144:144c654344aa716d6f3abcc1ca90e5641e4e2a7f633bc09fe3baf64585819a49",
-      "requested_amount_sat": "100000",
+      "requested_amount_sat": "150000",
       "available_amount_sat": "12345",
       "broadcast_attempted": false
     }
