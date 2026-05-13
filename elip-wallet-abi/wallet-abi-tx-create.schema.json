@@ -1,0 +1,990 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/wallet-abi/tx-create/wallet-abi-0.1.schema.json",
+  "title": "Wallet ABI tx_create wallet-abi-0.1 review schema",
+  "description": "Review schema for the Wallet ABI tx_create draft. Chain and explicit asset identifiers follow ELIP-0144, u64 satoshi amounts are decimal strings, and semantic validation remains the runtime's responsibility.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TxCreateRequest"
+    },
+    {
+      "$ref": "#/$defs/TxCreateResponse"
+    }
+  ],
+  "$defs": {
+    "Hex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{2})*$",
+      "description": "Hex-encoded byte string. Empty is allowed only where the referencing field permits it."
+    },
+    "Hex32": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "Uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "U64": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-5])$",
+      "description": "Unsigned 64-bit integer encoded as a decimal JSON string, with no leading zeroes except \"0\"."
+    },
+    "U32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "Byte": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "ByteArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Byte"
+      }
+    },
+    "Txid": {
+      "$ref": "#/$defs/Hex32"
+    },
+    "Script": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{2})+$",
+      "description": "Non-empty hex-encoded scriptPubKey byte string."
+    },
+    "XOnlyPublicKey": {
+      "$ref": "#/$defs/Hex32"
+    },
+    "PublicKey": {
+      "type": "string",
+      "pattern": "^(02|03)[0-9a-fA-F]{64}$"
+    },
+    "SecretKey": {
+      "$ref": "#/$defs/Hex32"
+    },
+    "OutPoint": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}:(?:0|[1-9][0-9]{0,8}|[1-3][0-9]{9}|4[0-1][0-9]{8}|42[0-8][0-9]{7}|429[0-3][0-9]{6}|4294[0-8][0-9]{5}|42949[0-5][0-9]{4}|429496[0-6][0-9]{3}|4294967[0-1][0-9]{2}|42949672[0-8][0-9]|429496729[0-5])$",
+      "description": "Outpoint encoded as txid:vout, with vout in uint32 range."
+    },
+    "SimplicityHLVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "description": "Exact SimplicityHL/Cargo compiler version requested by the caller, encoded as a SemVer-like string."
+    },
+    "SimfName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "SimplicityHL argument or witness name. Exact accepted names are ultimately defined by the compiler/source."
+    },
+    "SimfStaticValue": {
+      "type": "object",
+      "required": [
+        "value",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "SimplicityHL literal encoded as a string, for example \"100\", \"false\", \"Right(Left((false, 10, 1000)))\", or a 0x-prefixed signature."
+        },
+        "type": {
+          "type": "string",
+          "description": "SimplicityHL type annotation encoded as a string, for example \"u64\", \"Signature\", \"(bool, u64)\", or \"Either<...>\"."
+        }
+      }
+    },
+    "SimfStaticValues": {
+      "type": "object",
+      "description": "Caller-known static SIMF values keyed by SimplicityHL argument/witness name. Entries follow the WitnessValues/WitnessNames-style {value,type} shape.",
+      "propertyNames": {
+        "$ref": "#/$defs/SimfName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/SimfStaticValue"
+      },
+      "examples": [
+        {
+          "PATH": {
+            "value": "Right(Right((false, 10, 1000)))",
+            "type": "Either<Either<(u64, u256, u256, u256, u256, u256, u256, u256, u256), Either<(bool, u64, u64, u64), (bool, u64, u64)>>, Either<(bool, u64, u64), (bool, u64, u64)>>"
+          }
+        },
+        {
+          "PATH": {
+            "value": "Right(Left((false, 10, 1000)))",
+            "type": "Either<Either<(u64, u256, u256, u256, u256, u256, u256, u256, u256), Either<(bool, u64, u64, u64), (bool, u64, u64)>>, Either<(bool, u64, u64), (bool, u64, u64)>>"
+          }
+        },
+        {
+          "PATH": {
+            "value": "Left(Right(Left((false, 10, 1000, 500))))",
+            "type": "Either<Either<(u64, u256, u256, u256, u256, u256, u256, u256, u256), Either<(bool, u64, u64, u64), (bool, u64, u64)>>, Either<(bool, u64, u64), (bool, u64, u64)>>"
+          },
+          "COLLATERAL_AMOUNT": {
+            "value": "10",
+            "type": "u32"
+          }
+        }
+      ]
+    },
+    "LockTime": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "blocks"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "blocks": {
+              "$ref": "#/$defs/U32"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "seconds"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "seconds": {
+              "$ref": "#/$defs/U32"
+            }
+          }
+        }
+      ]
+    },
+    "AssetFilter": {
+      "oneOf": [
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "required": [
+            "exact"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "exact": {
+              "type": "object",
+              "required": [
+                "asset_id"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "asset_id": {
+                  "$ref": "#/$defs/Elip144AssetId"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AmountFilter": {
+      "oneOf": [
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "required": [
+            "exact"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "exact": {
+              "type": "object",
+              "required": [
+                "amount_sat"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "amount_sat": {
+                  "$ref": "#/$defs/U64"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "min"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "object",
+              "required": [
+                "amount_sat"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "amount_sat": {
+                  "$ref": "#/$defs/U64"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LockFilter": {
+      "oneOf": [
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "required": [
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "script": {
+              "type": "object",
+              "required": [
+                "script"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "script": {
+                  "$ref": "#/$defs/Script"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "WalletSourceFilter": {
+      "type": "object",
+      "required": [
+        "asset",
+        "amount",
+        "lock"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "$ref": "#/$defs/AssetFilter"
+        },
+        "amount": {
+          "$ref": "#/$defs/AmountFilter"
+        },
+        "lock": {
+          "$ref": "#/$defs/LockFilter"
+        }
+      }
+    },
+    "UTXOSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "wallet"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "wallet": {
+              "type": "object",
+              "required": [
+                "filter"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "filter": {
+                  "$ref": "#/$defs/WalletSourceFilter"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "provided"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "provided": {
+              "type": "object",
+              "required": [
+                "outpoint"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "outpoint": {
+                  "$ref": "#/$defs/OutPoint"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "InputUnblinding": {
+      "oneOf": [
+        {
+          "const": "wallet"
+        },
+        {
+          "const": "explicit"
+        },
+        {
+          "type": "object",
+          "required": [
+            "provided"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "provided": {
+              "type": "object",
+              "required": [
+                "blinding_secret_key"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "blinding_secret_key": {
+                  "$ref": "#/$defs/SecretKey"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "InputIssuance": {
+      "type": "object",
+      "required": [
+        "kind",
+        "asset_amount_sat",
+        "inflation_amount_sat",
+        "entropy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "new",
+            "reissue"
+          ]
+        },
+        "asset_amount_sat": {
+          "$ref": "#/$defs/U64"
+        },
+        "inflation_amount_sat": {
+          "$ref": "#/$defs/U64"
+        },
+        "entropy": {
+          "type": "array",
+          "minItems": 32,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/Byte"
+          }
+        }
+      }
+    },
+    "InternalKeySource": {
+      "description": "Stable wallet-abi-0.1 profile supports only bip0341. Future variants belong to a future ABI/capability profile.",
+      "const": "bip0341"
+    },
+    "RuntimeSimfValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "new_issuance_asset"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "new_issuance_asset": {
+              "type": "object",
+              "required": [
+                "input_index"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "input_index": {
+                  "$ref": "#/$defs/U32"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "new_issuance_token"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "new_issuance_token": {
+              "type": "object",
+              "required": [
+                "input_index"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "input_index": {
+                  "$ref": "#/$defs/U32"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Runtime-resolved SIMF argument directive. The key containing this directive is the SimplicityHL argument name that will receive the runtime value."
+    },
+    "RuntimeSimfWitness": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "sig_hash_all"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "sig_hash_all": {
+              "type": "object",
+              "required": [
+                "name",
+                "public_key"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/SimfName"
+                },
+                "public_key": {
+                  "$ref": "#/$defs/XOnlyPublicKey"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Runtime-resolved SIMF witness directive. sig_hash_all embeds a runtime-generated signature into the named witness slot."
+    },
+    "SimfArguments": {
+      "type": "object",
+      "required": [
+        "static_values",
+        "runtime_arguments"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "static_values": {
+          "$ref": "#/$defs/SimfStaticValues"
+        },
+        "runtime_arguments": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/SimfName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/RuntimeSimfValue"
+          }
+        }
+      }
+    },
+    "SimfWitness": {
+      "type": "object",
+      "required": [
+        "static_values",
+        "runtime_arguments"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "static_values": {
+          "$ref": "#/$defs/SimfStaticValues"
+        },
+        "runtime_arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuntimeSimfWitness"
+          }
+        }
+      }
+    },
+    "SimfFinalizerSpec": {
+      "type": "object",
+      "required": [
+        "type",
+        "source_simf",
+        "simplicity_hl_version",
+        "internal_key",
+        "arguments",
+        "witness"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "simf"
+        },
+        "source_simf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "simplicity_hl_version": {
+          "$ref": "#/$defs/SimplicityHLVersion"
+        },
+        "internal_key": {
+          "$ref": "#/$defs/InternalKeySource"
+        },
+        "arguments": {
+          "$ref": "#/$defs/SimfArguments"
+        },
+        "witness": {
+          "$ref": "#/$defs/SimfWitness"
+        }
+      }
+    },
+    "FinalizerSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "wallet"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/SimfFinalizerSpec"
+        }
+      ]
+    },
+    "InputSchema": {
+      "type": "object",
+      "required": [
+        "id",
+        "utxo_source",
+        "unblinding",
+        "sequence",
+        "finalizer"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "utxo_source": {
+          "$ref": "#/$defs/UTXOSource"
+        },
+        "unblinding": {
+          "$ref": "#/$defs/InputUnblinding"
+        },
+        "sequence": {
+          "$ref": "#/$defs/U32"
+        },
+        "issuance": {
+          "$ref": "#/$defs/InputIssuance"
+        },
+        "finalizer": {
+          "$ref": "#/$defs/FinalizerSpec"
+        }
+      }
+    },
+    "LockVariant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "wallet"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "script"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "script"
+            },
+            "script": {
+              "$ref": "#/$defs/Script"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "finalizer"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "finalizer"
+            },
+            "finalizer": {
+              "$ref": "#/$defs/SimfFinalizerSpec"
+            }
+          }
+        }
+      ]
+    },
+    "AssetVariant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "asset_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "asset_id"
+            },
+            "asset_id": {
+              "$ref": "#/$defs/Elip144AssetId"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "input_index"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "new_issuance_asset"
+            },
+            "input_index": {
+              "$ref": "#/$defs/U32"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "input_index"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "new_issuance_token"
+            },
+            "input_index": {
+              "$ref": "#/$defs/U32"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "input_index"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "re_issuance_asset"
+            },
+            "input_index": {
+              "$ref": "#/$defs/U32"
+            }
+          }
+        }
+      ]
+    },
+    "BlinderVariant": {
+      "oneOf": [
+        {
+          "const": "wallet"
+        },
+        {
+          "const": "explicit"
+        },
+        {
+          "type": "object",
+          "required": [
+            "provided"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "provided": {
+              "type": "object",
+              "required": [
+                "pubkey"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "pubkey": {
+                  "$ref": "#/$defs/PublicKey"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OutputSchema": {
+      "type": "object",
+      "required": [
+        "id",
+        "amount_sat",
+        "lock",
+        "asset",
+        "blinder"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "amount_sat": {
+          "$ref": "#/$defs/U64"
+        },
+        "lock": {
+          "$ref": "#/$defs/LockVariant"
+        },
+        "asset": {
+          "$ref": "#/$defs/AssetVariant"
+        },
+        "blinder": {
+          "$ref": "#/$defs/BlinderVariant"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "asset": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "new_issuance_token"
+                  }
+                }
+              }
+            },
+            "required": [
+              "asset"
+            ]
+          },
+          "then": {
+            "not": {
+              "properties": {
+                "blinder": {
+                  "const": "explicit"
+                }
+              },
+              "required": [
+                "blinder"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "RuntimeParams": {
+      "type": "object",
+      "required": [
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputSchema"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputSchema"
+          }
+        },
+        "fee_rate_sat_kvb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Finite non-negative floating-point fee rate in sat/kvB."
+        },
+        "lock_time": {
+          "$ref": "#/$defs/LockTime"
+        }
+      }
+    },
+    "TxCreateRequest": {
+      "type": "object",
+      "required": [
+        "abi_version",
+        "request_id",
+        "chain_id",
+        "params",
+        "broadcast"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "abi_version": {
+          "const": "wallet-abi-0.1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/Elip144ChainId"
+        },
+        "params": {
+          "$ref": "#/$defs/RuntimeParams"
+        },
+        "broadcast": {
+          "type": "boolean"
+        }
+      }
+    },
+    "TransactionInfo": {
+      "type": "object",
+      "required": [
+        "tx_hex",
+        "txid"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tx_hex": {
+          "$ref": "#/$defs/TransactionHex"
+        },
+        "txid": {
+          "$ref": "#/$defs/Txid"
+        }
+      }
+    },
+    "ErrorInfo": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": true
+      }
+    },
+    "TxCreateResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "abi_version",
+            "request_id",
+            "chain_id",
+            "status",
+            "transaction"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "abi_version": {
+              "const": "wallet-abi-0.1"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "chain_id": {
+              "$ref": "#/$defs/Elip144ChainId"
+            },
+            "status": {
+              "const": "ok"
+            },
+            "transaction": {
+              "$ref": "#/$defs/TransactionInfo"
+            },
+            "artifacts": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "abi_version",
+            "request_id",
+            "chain_id",
+            "status",
+            "error"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "abi_version": {
+              "const": "wallet-abi-0.1"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "chain_id": {
+              "$ref": "#/$defs/Elip144ChainId"
+            },
+            "status": {
+              "const": "error"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            "artifacts": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      ]
+    },
+    "Elip144ChainId": {
+      "type": "string",
+      "pattern": "^bip122:[0-9a-f]{32}$",
+      "description": "ELIP-0144 chain_id: bip122:<first 32 characters of the network genesis block hash as lowercase hex>.",
+      "examples": [
+        "bip122:1466275836220db2944ca059a3a10ef6",
+        "bip122:a771da8e52ee6ad581ed1e9a99825e5b",
+        "bip122:cc2641af46f536fba45aab6016f63e12"
+      ]
+    },
+    "Elip144AssetId": {
+      "type": "string",
+      "pattern": "^bip122:[0-9a-f]{32}/elip144:[0-9a-f]{64}$",
+      "description": "ELIP-0144 asset_id: <chain_id>/elip144:<64-lowercase-hex Elements asset_reference>."
+    },
+    "TransactionHex": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{2})+$",
+      "description": "Non-empty hex-encoded finalized Elements transaction bytes."
+    }
+  }
+}
