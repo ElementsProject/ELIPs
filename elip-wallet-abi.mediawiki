@@ -965,7 +965,6 @@ dispatch, finalizer script-pubkey verification tests, and fixtures covering conf
 == Test Vectors and Auxiliary Files ==
 
 The auxiliary files below are intended to be committed with this draft in the <code>elip-wallet-abi/</code> subdirectory.
-After an ELIP number is assigned, the directory and links can be renamed according to editor preference.
 
 The example request and response files are mock fixtures for the current draft. They exercise the proposed JSON shape
 and schema constraints, but they are expected to be corrected or replaced after the first proper wallet/runtime implementation is available.
@@ -1056,6 +1055,11 @@ Explicit reissuance-token support, if added later, would require an ABI/capabili
 <code>sig_hash_all</code> names the target witness slot (<code>name</code>) and expected signer x-only public key (<code>public_key</code>).
 A future ABI will need to finalize how the generated BIP-340 signature is embedded back into the SimplicityHL WitnessValues structure,
 including structures that contain branching such as <code>Right(Left((<x-only-pubkey>, ...)))</code>.
+
+=== A.6 State Management ===
+
+A future ABI MAY extend [[#Finalizer specification: FinalizerSpec|<code>FinalizerSpec</code>]] and/or [[#InternalKeySource|<code>InternalKeySource</code>]]
+to support Simplicity covenants whose Taproot output commits to contract state.
 
 == Appendix B: JSON Schema ==
 
