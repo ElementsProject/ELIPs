@@ -1,0 +1,50 @@
+<pre>
+  ELIP: Draft
+  Layer: Wallet
+  Title: Silent Payments for Liquid Wallet Kit (LWK)
+  Author: Arnav Singhal
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-06-02
+</pre>
+
+== Abstract ==
+This specification defines the integration of BIP352 (Silent Payments) into the Liquid Wallet Kit (LWK). It specifies cryptographic adaptations required for Liquid Confidential Transactions (CT) and mandates the use of the "Tweak Server" index model for efficient, privacy-preserving receive scanning.
+
+== Motivation ==
+The Liquid Network utilizes Confidential Transactions to blind asset types and transfer amounts. Static address reuse continues to leak transaction graph data, compromising receiver privacy. BIP352 generates unique destination addresses per transaction. Implementing this in LWK requires handling Liquid's specific blinding keys alongside SP's scan and spend keys, while ensuring lightweight clients avoid extreme performance degradation during scanning.
+
+== Specification ==
+
+=== 1. Send Architecture (LWK API) ===
+Consumers of the LWK API must be able to parse a Liquid Silent Payment address and construct a valid transaction. 
+
+# '''Input Parameters:''' Sender wallet extracts receiver's <code>scan_pubkey</code>, <code>spend_pubkey</code>, and Liquid <code>blinding_pubkey</code> from the SP address.
+# '''Tweak Computation:''' Sender computes ECDH shared secret using own eligible transaction input private keys and receiver's <code>scan_pubkey</code>.
+# '''Output Generation:''' Sender applies resulting tweak to receiver's <code>spend_pubkey</code> to create unique Taproot output.
+# '''Confidential Transactions (CT):''' Standard Liquid CT blinding process executes. Ephemeral blinding factor is generated and applied to output using the <code>blinding_pubkey</code>. Corresponding range proof attaches to transaction payload.
+
+=== 2. Receive Architecture (Tweak Server Model) ===
+To prevent CPU drain on client devices, LWK receive implementation must strictly adhere to the "Tweak Server (Anonymous)" stack architecture. 
+
+==== Server Requirements (Index Provider) ====
+* Service must operate as an untrusted, anonymous provider.
+* Server must index entire chain starting from Taproot activation.
+* Server must implement standard REST endpoints: <code>GET /getinfo</code> and <code>GET /tweaks/:blockheight</code>.
+* Server requires no authentication for public endpoints and must not store user keys.
+
+==== Client Requirements (LWK) ====
+LWK must not share <code>scan_privkey</code> or <code>spend_pubkey</code> with server, ensuring privacy by masking interest in specific ScriptPubKeys. LWK scanning flow must follow:
+# '''Fetch:''' LWK fetches block tweaks via <code>GET /tweaks/:blockheight</code> for a block or range of blocks.
+# '''Compute:''' LWK calculates possible <code>scriptPubKeys</code> locally.
+# '''Filter:''' LWK fetches BIP158 compact block filters to match calculated <code>scriptPubKeys</code>.
+# '''Verify:''' Upon match, LWK must download full block to verify owned UTXOs. LWK must not rely on simplified UTXOs from server to maintain trustless state.
+# '''State Management:''' LWK should maintain SP transaction archive to avoid rescanning from wallet birthdate during recovery.
+
+== Security and Privacy ==
+* '''Client Anonymity:''' Because LWK only requests block tweaks, server cannot discern specific transactions belonging to wallet.
+* '''Data Integrity:''' LWK must verify block hashes to detect reorgs and validate tweak data against full node. 
+* '''Rate Limiting:''' Network requests should respect anonymous service rate limits (maximum 10 blocks per minute) and apply batching to reduce timing correlation.
+
+== Backward Compatibility ==
+Introduces new data structures for Liquid SP addresses and API calls for SP transaction building. Existing LWK APIs handling standard Liquid addresses and standard Confidential Transactions remain unchanged.
