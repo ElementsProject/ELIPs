@@ -1,0 +1,527 @@
+<pre>
+  ELIP: ?
+  Layer: Applications
+  Title: Confidential Silent Payments on Liquid
+  Author: Abhay Pandey
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-06-02
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+[https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP-352 Silent Payments] give Bitcoin users a reusable static address whose on-chain footprints are unlinkable. [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki Confidential Transactions (CT)] give Liquid users outputs whose asset and amount are hidden. These solve orthogonal privacy problems: CT conceals '''what''' moved; Silent Payments conceal '''who''' received it at the script level.
+
+This ELIP defines their composition for the Liquid Network under protocol version&nbsp;0 (<code>spv0</code>). The BIP-352 ECDH spend path, input aggregation, partial tweaks, and label scheme are imported without modification. The Liquid-specific work is the '''CT envelope''': encoding each derived payment as a confidential P2WPKH output, deriving a per-output blinding key from the shared secret in a separate hash domain, and specifying wallet/indexer behaviour so receivers can scan, unblind, and spend without any out-of-band blinding-key exchange.
+
+The document further specifies <code>lsp</code>/<code>tlsp</code> address encoding, the <code>elsp</code> descriptor, optional PSET metadata, a full-node receive path, and a tweak-server light-client path aligned with the anonymous profile of the [https://github.com/silent-payments/BIP0352-index-server-specification BIP-352 index server specification]. No consensus or relay changes are required.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Liquid wallets ([https://github.com/Blockstream/lwk LWK], Elements Core, Jade) already implement CT descriptors, blinded PSETs, and Esplora/Electrum sync. None of them offer a published receive identifier that stays unlinkable across payments.
+
+Merchants, donation pages, and standing counterparty relationships currently choose between:
+
+* reusing a confidential <code>lq1...</code> address — CT hides amounts, but every payment shares the same script; or
+* distributing fresh addresses interactively — unlinkable scripts, but operationally costly.
+
+<code>spv0</code> removes that trade-off. A receiver publishes one <code>lsp1...</code> address; each sender derives a unique confidential P2WPKH output. Third parties see only unrelated one-time scripts and blinded commitments; the receiver detects payments by scan and recovers values with a blinding key tied to the same ECDH secret that derived the spend key.
+
+Wallet libraries need one normative specification for the cross-protocol seams — address HRP, blinding derivation, scan loops, indexer API, spend-key handling — so implementations interoperate without fork-specific behaviour.
+
+==Scope and dependencies==
+
+===In scope===
+
+* <code>spv0</code> on Liquid mainnet, testnet, and regtest.
+* Address encoding, BIP-32 paths, <code>elsp</code> descriptor.
+* Send path (PSET); receive paths (full node, tweak server).
+* Software signing with per-UTXO tweaked keys.
+* Minimal Liquid tweak-server HTTP API.
+
+===Out of scope===
+
+* Consensus, opcode, or relay-policy changes.
+* Confidential Taproot (<code>eltr</code>) silent-payment outputs — reserved for <code>spv1</code>.
+* Hardware-signer firmware; CoinJoin / multi-party input aggregation without DLEQ proofs.
+* Remote-scanner and personalized-scanner stacks from the index-server specification.
+
+===Normative references===
+
+{| class="wikitable"
+! Document !! Role
+|-
+| [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP-352] || Spend path, scanning logic, labels, partial tweaks, <code>K_max</code>
+|-
+| [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP-150] || CT output structure; contrast with script-derived blinding
+|-
+| [https://github.com/silent-payments/BIP0352-index-server-specification BIP-352 index server spec] || Tweak-server trust model and anonymous profile
+|-
+| [https://github.com/ElementsProject/elements/blob/master/doc/pset.mediawiki Elements PSET] || Transaction interchange format
+|}
+
+Where this ELIP is silent, BIP-352 governs. Deviations are explicit in §Liquid deltas.
+
+==Terminology==
+
+{| class="wikitable"
+! Term !! Definition
+|-
+| <code>b_scan</code>, <code>B_scan</code> || Scan key pair; detection only. MAY be exported to an indexer process.
+|-
+| <code>b_spend</code>, <code>B_spend</code> || Spend key pair; signing authority. MUST stay with the signer.
+|-
+| Partial tweak <code>T</code> || <code>input_hash · A</code>; 33-byte compressed point served per eligible transaction.
+|-
+| Derivation index <code>k</code> || '''Not''' a transaction <code>vout</code>. Zero-based counter of outputs paid to the same <code>B_scan</code> group within one transaction (BIP-352 convention). Incremented only after a cryptographic script match.
+|-
+| <code>K_max</code> || <code>2323</code>; maximum <code>k</code> before stopping (BIP-352 DoS bound).
+|-
+| CT envelope || Confidential commitments, range proofs, ECDH nonce, and blinding pubkey <code>BK_k</code> wrapping the derived P2WPKH script.
+|}
+
+Notation: <code>G</code>, <code>n</code>, <code>serP</code>, <code>ser32</code>, <code>ser256</code>, <code>hash_tag</code> as in BIP-352 / BIP-340.
+
+==Architectural model==
+
+<pre>
+  ┌──────────────────────────────────────────┐
+  │  Wallet / indexer (PSET, elsp, scan)     │
+  ├──────────────────────────────────────────┤
+  │  CT envelope  ← only novel cryptography  │
+  │    bk_k from S ; blinded asset/value     │
+  ├──────────────────────────────────────────┤
+  │  BIP-352 core ← imported verbatim        │
+  │    S, t_k, P_k, input_hash, labels       │
+  └──────────────────────────────────────────┘
+</pre>
+
+{| class="wikitable"
+! Layer !! Third-party observer learns
+|-
+| Neither CT nor SP || Script, asset, amount, full payment graph
+|-
+| CT only (<code>lq1...</code>) || Script and graph; not asset/amount
+|-
+| SP only (hypothetical transparent Liquid) || Asset/amount if unblinded; not address linkage
+|-
+| <code>spv0</code> (this ELIP) || Neither graph linkage nor asset/amount
+|}
+
+'''Core design problem.''' ELIP-150/151 blinding keys are functions of a known output script. Silent-payment scripts are unknown until scan completes. <code>spv0</code> therefore binds <code>bk_k</code> to the BIP-352 shared secret <code>S</code> via <code>hashLiquidSilentPayments/Blind/1.0</code>, in a domain disjoint from <code>hashBIP0352/SharedSecret</code>.
+
+==Liquid deltas from BIP-352==
+
+This section lists every intentional deviation from Bitcoin BIP-352 v0. All other BIP-352 rules apply unchanged.
+
+{| class="wikitable"
+! Topic !! Bitcoin BIP-352 v0 !! Liquid <code>spv0</code>
+|-
+| Address HRP || <code>sp</code> / <code>tsp</code> || <code>lsp</code> / <code>tlsp</code>
+|-
+| Output type created || P2TR (x-only key) || Confidential P2WPKH
+|-
+| Scan-set output predicate || ≥1 P2TR output in tx || ≥1 P2WPKH (<code>OP_0 PUSH20</code>) output in tx
+|-
+| CT blinding key || N/A (transparent) || <code>bk_k</code> from <code>S</code> (§CT envelope)
+|-
+| Tweak-server BIP-158 filter || Typically used || Optional only; scripts are public on Liquid
+|-
+| Eligible inputs (v0) || P2TR, P2WPKH, P2SH-P2WPKH, P2PKH || P2WPKH, P2SH-P2WPKH, P2PKH (P2TR deferred to <code>spv1</code>)
+|}
+
+==Cryptographic core==
+
+Reproduced for convenience; BIP-352 is authoritative on details not repeated here.
+
+===Key pairs and BIP-32 paths===
+
+Two independent secp256k1 key pairs: scan <code>(b_scan, B_scan)</code>, spend <code>(b_spend, B_spend)</code>.
+
+When derived from a BIP-32 seed, paths MUST be:
+
+<pre>
+scan:  m / 352' / coin_type' / account' / 1' / 0
+spend: m / 352' / coin_type' / account' / 0' / 0
+</pre>
+
+with <code>coin_type = 1776</code> (mainnet) or <code>1</code> (testnet/regtest) per SLIP-44. Every path component MUST be hardened except the final <code>0</code>.
+
+===Input binding===
+
+Eligible input keys <code>a_i</code> sum to <code>a = Σ a_i (mod n)</code>; fail if <code>a = 0</code>. <code>A = a·G</code>.
+
+<pre>
+input_hash = int( hashBIP0352/Inputs( outpoint_L || serP(A) ) ) mod n
+</pre>
+
+Fail if <code>input_hash = 0</code> or <code>input_hash ≥ n</code>. <code>outpoint_L</code> is the lexicographically smallest eligible input outpoint (32-byte internal txid || 4-byte LE vout).
+
+===Shared secret and spend output===
+
+<pre>
+S   = input_hash · a · B_scan     (sender)
+S   = input_hash · b_scan · A     (receiver)
+t_k = int( hashBIP0352/SharedSecret( serP(S) || ser32(k) ) ) mod n
+</pre>
+
+Fail if <code>t_k = 0</code> or <code>t_k ≥ n</code>.
+
+<pre>
+P_k = B_spend + t_k·G     (or B_spend,m when labeled)
+d_k = (b_spend + t_k [+ label_scalar]) mod n
+</pre>
+
+===Labels===
+
+<pre>
+label_scalar_m = int( hashBIP0352/Label( ser256(b_scan) || ser32(m) ) ) mod n
+B_spend,m      = B_spend + label_scalar_m·G
+</pre>
+
+<code>m = 0</code> is reserved for change; MUST NOT be published in payment addresses. Wallets MUST scan for <code>m = 0</code> on recovery even if they never issued other labels.
+
+===Partial tweak===
+
+<pre>
+T = input_hash · A          // indexer publishes serP(T) per eligible tx
+S = b_scan · T              // receiver
+</pre>
+
+==Eligible inputs (Liquid v0)==
+
+An input contributes to <code>a</code> / <code>A</code> when:
+
+* it is not issuance, reissuance, or peg-in;
+* its signing pubkey is uniquely recoverable (no multisig / conditional branches);
+* its type is P2WPKH, P2SH-P2WPKH, or P2PKH per BIP-352 witness/scriptSig parsing rules.
+
+CT on the spent output does not affect pubkey recovery.
+
+'''Sender additional restrictions''' (from BIP-352, applicable on Liquid):
+
+* at least one input MUST be eligible;
+* inputs with SegWit version &gt; 1 MUST NOT be spent (future-proofing);
+* if signing with SIGHASH flags, MUST NOT use <code>SIGHASH_ANYONECANPAY</code> (inputs must remain fixed after output derivation).
+
+Taproot key-path inputs MAY be added in <code>spv1</code> with BIP-352 even-Y aggregation unchanged.
+
+==CT envelope==
+
+===Output script===
+
+<pre>
+witness_program = HASH160( serP(P_k) )
+scriptPubKey    = OP_0 &lt;witness_program&gt;    // 0x0014{20 bytes}
+</pre>
+
+===Blinding-key derivation===
+
+<pre>
+bk_k = int( hashLiquidSilentPayments/Blind/1.0( serP(S) || ser32(k) ) ) mod n
+BK_k = bk_k·G
+</pre>
+
+Domain tag MUST NOT collide with <code>BIP0352/SharedSecret</code> or ELIP-150's <code>CT-Blinding-Key/1.0</code>.
+
+===How blinding attaches (Elements CT)===
+
+Once <code>scriptPubKey</code> and <code>BK_k</code> are known, the sender constructs a confidential output using the standard Elements flow:
+
+# Build an explicit (unblinded) output with the chosen <code>asset_id</code> and <code>amount</code>.
+# Set the output's receiver blinding pubkey to <code>BK_k</code> (equivalently: populate the PSET output <code>blinding_key</code> field).
+# During PSET blinding, the sender generates a fresh ephemeral scalar, places its pubkey in the output ECDH nonce field, and encrypts the asset/value blinding factors using ECDH between that ephemeral key and <code>BK_k</code> — identical to ordinary CT, except <code>BK_k</code> is silent-payment-derived rather than SLIP-77/ELIP-151-derived.
+
+The receiver, after scan match, holds <code>bk_k</code>, reads the output nonce, and calls standard Elements unblinding (<code>TxOut::unblind</code> with <code>bk_k</code>) to recover <code>TxOutSecrets</code>.
+
+'''Elements policy note:''' if any input being spent is confidential, at least one output (payment or change) MUST be confidential — ordinary Elements rules apply. Silent-payment outputs SHOULD be confidential in all cases.
+
+===Multi-asset===
+
+Asset and amount are sender-chosen PSET fields. The protocol does not restrict asset type. The receiver learns them only post-unblind.
+
+==Addresses and descriptors==
+
+===Address encoding===
+
+Bech32m, witness version&nbsp;0 (character <code>q</code>), 66-byte program <code>serP(B_scan) || serP(B_spend)</code> (or <code>B_spend,m</code> for labeled addresses).
+
+{| class="wikitable"
+! Network !! HRP !! Example
+|-
+| Liquid mainnet || <code>lsp</code> || <code>lsp1q...</code>
+|-
+| Liquid testnet / regtest || <code>tlsp</code> || <code>tlsp1q...</code>
+|}
+
+'''Safety requirement:''' HRP MUST NOT be <code>lq</code> or <code>tlq</code>. Those HRPs denote ordinary CT receive addresses; reuse would make silent-payment strings indistinguishable from standard confidential addresses and can misroute funds.
+
+Decoding MUST reject: wrong HRP for network, wrong program length (≠ 66 bytes), witness version ≠ 0.
+
+Payment URIs: BIP-21 / BIP-321 parameter <code>sp=</code> carrying the full <code>lsp1...</code> string (LWK already parses this field; validation against this ELIP remains TODO in existing code).
+
+===Descriptor===
+
+<pre>
+elsp(&lt;B_scan&gt;, &lt;B_spend&gt;)
+</pre>
+
+Arguments are compressed pubkeys or xpubs terminating at the BIP-32 leaves above. Unlike <code>ct(slip77(...), elwpkh(...))</code>, <code>elsp</code> does not enumerate static scripts — it anchors keys and scan policy. Each received UTXO carries its own <code>scriptPubKey</code>, <code>d_k</code>, and <code>bk_k</code> in wallet state.
+
+==Scan eligibility==
+
+A transaction enters the scan set iff:
+
+# it has ≥1 eligible input (§Eligible inputs); and
+# it has ≥1 output whose unconfidential script matches P2WPKH; and
+# it does not spend an input with SegWit version &gt; 1.
+
+Unlike Bitcoin, a P2TR output in the same transaction is '''not''' required — <code>spv0</code> creates P2WPKH, not P2TR.
+
+Wallets MAY skip transactions with no unspent P2WPKH outputs when only UTXO recovery is needed (BIP-352 optimization); full-history recovery MUST scan all eligible transactions back to <code>birth_height</code>.
+
+==Scanning algorithm==
+
+This is the normative receiver loop for <code>spv0</code>, adapted from BIP-352 §Receiver §Scanning.
+
+===Inputs===
+
+<pre>
+A = Σ A_i   over eligible input pubkeys; skip tx if A is point at infinity
+input_hash  ← as above; fail if invalid scalar
+S = input_hash · b_scan · A
+outputs_to_check ← { witness_program | each P2WPKH output in tx }
+</pre>
+
+===Main loop===
+
+<pre>
+k ← 0
+while k &lt; K_max and outputs_to_check not empty:
+  derive t_k, P_k from B_spend (or labeled B_spend,m)
+  candidate_script ← OP_0 || HASH160(serP(P_k))
+  for each output in outputs_to_check:
+    if output.script matches candidate_script:
+      derive bk_k; unblind; record UTXO (d_k, bk_k, secrets, label if any)
+      remove output from outputs_to_check
+      k ← k + 1
+      restart inner loop with new k     // mandatory
+      goto while
+    else try labels (see below)
+  break   // no match at this k → stop
+</pre>
+
+'''Critical rule (from BIP-352):''' increment <code>k</code> only after a '''cryptographic''' script match. If a match is later discarded by wallet policy (dust, wrong asset), <code>k</code> MUST still have been incremented — otherwise outputs at higher <code>k</code> from the same sender are missed.
+
+===Label detection===
+
+When <code>P_k</code> does not match directly, for each <code>output</code> in <code>outputs_to_check</code>:
+
+# Compute <code>Q = serP(output_key) - P_k</code> where <code>output_key</code> is the pubkey recovered from the P2WPKH program (pre-image of HASH160).
+# Check whether <code>Q</code> equals a precomputed label point <code>label_scalar_m · G</code> for any <code>m</code> in the wallet's label set (always include <code>m = 0</code>).
+# On label hit: record spend key with label scalar added; remove output; increment <code>k</code>.
+
+P2WPKH outputs use compressed keys, so the Taproot-specific Y-negation retry from BIP-352 does not apply.
+
+===Gap limit===
+
+<code>output_gap_limit</code> (default <code>20</code>) applies to consecutive <code>k</code> values with no match within a single transaction, consistent with BIP-352 multi-output semantics.
+
+==Wallet workflows==
+
+===Sender===
+
+# Decode <code>lsp1...</code> → <code>(B_scan, B_spend[, label])</code>.
+# Coin-select eligible inputs; enforce <code>K_max</code> per scan-key group when paying multiple recipients.
+# For each recipient group sharing <code>B_scan</code>: compute <code>S</code>; for each output at <code>k = 0, 1, …</code> derive <code>P_k, bk_k, scriptPubKey</code>.
+# Build and blind PSET; sign; broadcast.
+# Self-change via own silent-payment address SHOULD use label <code>m = 0</code>.
+
+===Receiver state===
+
+Silent-payment wallets MUST persist, per detected UTXO:
+
+* <code>outpoint</code>, <code>txid</code>, block height;
+* derivation index <code>k</code>, label <code>m</code> (if any);
+* <code>scriptPubKey</code>, <code>d_k</code>, <code>bk_k</code>, unblinded <code>TxOutSecrets</code>;
+* partial tweak <code>T</code> (for audit / reorg replay).
+
+This state is '''not''' reconstructible from <code>elsp</code> alone — only from scan history. Regular backups of the matched-payment ledger are REQUIRED for fast recovery (BIP-352 §Backup).
+
+===Receiver profile A — full node===
+
+Scan every block from <code>birth_height</code> to tip using §Scanning algorithm. No network service learns the wallet's scan activity.
+
+===Receiver profile B — tweak server===
+
+Untrusted indexer publishes <code>{txid, serP(T)}</code> per eligible transaction. Client:
+
+# MUST NOT upload <code>b_scan</code>, <code>b_spend</code>, or the silent-payment address.
+# Fetches <code>/tweaks/{height}</code>; verifies block hash; fetches each <code>txid</code>; runs §Scanning algorithm with <code>S = b_scan · T</code>.
+# MUST independently recompute <code>A</code>, <code>input_hash</code>, <code>T</code> from the full transaction and reject mismatches.
+
+'''Why BIP-158 is optional on Liquid:''' CT hides values but not <code>scriptPubKey</code>. The client can match <code>candidate_script</code> directly against fetched transaction outputs. Bitcoin tweak servers use filters because Taproot outputs cannot be guessed without completing the tweak first. Liquid's public scripts remove that bottleneck without weakening the untrusted-server model.
+
+==Liquid tweak-server HTTP API==
+
+===GET /getinfo===
+
+```json
+{
+  "version": "1.0.0",
+  "network": "liquid-mainnet",
+  "block_height": 3000000,
+  "sp_index_start": 1562400,
+  "dust_limit": 546
+}
+```
+
+===GET /tweaks/:height===
+
+Optional query: <code>dust_limit</code>, <code>filter_spent</code>.
+
+```json
+{
+  "height": 3000000,
+  "hash": "<block hash, hex>",
+  "entries": [
+    {
+      "txid": "<txid, hex>",
+      "partial_tweak": "<serP(T), hex>"
+    }
+  ]
+}
+```
+
+Rate limit: SHOULD ≤ 10 heights/minute/client. On hash mismatch at a height, client rolls back to common ancestor and rescans forward.
+
+Transaction fetch MAY use Esplora, Electrum, or Elements RPC — out of scope for this API.
+
+==PSET proprietary fields (optional)==
+
+Prefix <code>LiquidSilentPayment</code> for co-signers that cannot re-derive outputs:
+
+{| Suffix !! Value
+|-
+| <code>/sp_version</code> || <code>0x00</code>
+|-
+| <code>/sp_scan_pubkey</code> || 33 bytes
+|-
+| <code>/sp_spend_pubkey</code> || 33 bytes
+|-
+| <code>/sp_output_index</code> || <code>ser32(k)</code>
+|-
+| <code>/sp_label</code> || <code>ser32(m)</code>, omitted if none
+|}
+
+==Spending==
+
+Controlled by one-off scalar <code>d_k</code> (+ label scalar), not a BIP-32 leaf.
+
+'''Software signers''' MUST sign P2WPKH inputs given <code>d_k</code> or <code>(b_spend, t_k + label_scalar)</code> via standard ECDSA.
+
+'''Hardware signers''' (Jade, Ledger) register fixed derivation paths and cannot apply per-UTXO additive tweaks in current protocols — out of scope for v0.
+
+When spending a silent-payment UTXO alongside ordinary <code>ct(..., elwpkh(...))</code> coins, the PSET MUST include correct unblinded input data for each input; silent-payment inputs use <code>d_k</code> as the signing key for that input's P2WPKH script.
+
+==Recovery==
+
+From seed only: derive <code>b_scan</code>, <code>b_spend</code> via BIP-32 paths; rescan from <code>birth_height</code> (or wallet creation height).
+
+* '''UTXO set recovery:''' scan eligible transactions with unspent P2WPKH outputs only.
+* '''Full history:''' scan all eligible transactions.
+* '''Labels:''' persist label set in backup; on seed-only recovery always scan <code>m = 0</code>; if label usage is unknown, precompute and check a large label range (BIP-352 recommends up to 100k) or restore label metadata from backup.
+
+Matched-payment ledger + seed is strictly stronger than seed alone.
+
+==Test vectors==
+
+Hex values below. Reference implementation MUST reproduce all fields before Final.
+
+===Keys===
+
+<pre>
+b_scan  = 1111111111111111111111111111111111111111111111111111111111111111
+b_spend = 2222222222222222222222222222222222222222222222222222222222222222
+</pre>
+
+===Inputs===
+
+<pre>
+a_0 = 3131313131313131313131313131313131313131313131313131313131313131
+a_1 = 3232323232323232323232323232323232323232323232323232323232323232
+outpoint_L = input 0 (lexicographically smaller)
+</pre>
+
+===Intermediate===
+
+<pre>
+A          = 031195a8046dcbb8e17034bca630065e7a0982e4e36f6f7e5a8d4554e4846fcd99
+input_hash = d392922c00280a7e8d282182f5026f2fddbc74c1e1de18b4822128b2b77ec641
+</pre>
+
+===Outputs===
+
+<pre>
+k=0  P_k=02a29d9716417c964ca9e477343e71ffe730a4991a3eaad668eabec84e9feb7931
+     BK_k=0344e1289497e6da66fde710d2f38de053fc07355e405524401d7d609df5a1a8cc
+     bk_k=70ab8897b64bd21b427339ff4d014b883191ef6425862246c53bfc27a59aa3f0
+     d_k=f03c436d2cd67ae1fecf7d88a38aa3a03c0abea43feaf6da8eb71e2e3a866bda
+     script=0014aad1065758c02efbf32e797f108007741068eb25
+
+k=1  P_k=0229d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
+     BK_k=03efdeda770ccdbe8bf466fba48bfd2b2c436ab0c04658fc6d6c277de5078129fa
+     bk_k=945ba73a9804f62089c7d2ffdc079031031f0aebab372cec17ef9c110ebceb10
+     d_k=9eff3472230fc83ef5ea8f8c80401c4eecd595a048bd2482a107d3a49baa5a58
+     script=001481bc88e345e0a585da4ee2157eef9e18bff416cf
+</pre>
+
+===Address===
+
+Mainnet <code>lsp1...</code> for these keys: to be filled by reference implementation (Bech32m checksum depends on HRP). Cross-check: Bitcoin <code>sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv</code> encodes the same pubkey pair under HRP <code>sp</code>.
+
+Blinded output bytes are nondeterministic; conformance is script match + unblind under <code>bk_k</code>.
+
+==Design decisions==
+
+{| Decision !! Choice !! Rejected !! Why
+|-
+| HRP || <code>lsp</code>/<code>tlsp</code> || <code>lq</code>/<code>tlq</code> || Existing CT HRP collision
+|-
+| Output (v0) || Confidential P2WPKH || P2TR || Matches deployed Liquid wallets; Taproot in v1
+|-
+| Blinding || <code>bk_k</code> from <code>S</code> || Script-derived; fixed address blinding || Scan-time discovery requires script-independent blinding
+|-
+| Indexer filters || Direct script match || Mandatory BIP-158 || Liquid scripts are public
+|-
+| Receive paths || Full node + tweak server || Server only || Privacy, regtest, CI
+|}
+
+==Backwards compatibility==
+
+Opt-in. No impact on existing CT wallets or consensus. On-chain, a silent-payment UTXO is a normal confidential P2WPKH output — validators need no changes. Only wallets implementing this ELIP can detect and spend via <code>d_k</code>.
+
+==Security considerations==
+
+* '''Scan key exposure''' — detection without spend authority; export only to trusted scan processes.
+* '''Indexer metadata''' — height polling reveals activity patterns; jitter and batch requests.
+* '''<code>K_max</code>''' — limits worst-case scan to <code>O(N · K_max)</code> per block (BIP-352).
+* '''Input ownership''' — aggregated inputs SHOULD belong to one sender.
+* '''CT composition''' — independent review recommended before Final.
+
+==Reference implementation==
+
+[https://github.com/Blockstream/lwk LWK] is the intended integration target: new <code>lwk_sp</code> crate (BIP-352 core + CT envelope), tweak-server client in <code>lwk_wollet::clients</code>, tweaked-key signing in <code>lwk_signer</code>, silent-payment UTXO store separate from descriptor-based <code>Wollet</code> cache. SHOULD ship with this ELIP before Final.
+
+==Acknowledgements==
+
+BIP-352 authors; silent-payments index-server contributors; Elements ELIP-150/151 authors.
