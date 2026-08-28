@@ -1,0 +1,181 @@
+<pre>
+  ELIP: 153
+  Layer: Wallet
+  Title: AMP2 Descriptors
+  Author: Leonardo Comandini <leonardo@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0153
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-07-28
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a standard way to derive AMP2 descriptors.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+AMP2 is a service that enforces transfer authorization by cosigning Elements transactions: users create wallets where both their own signature(s) and the AMP2 server's signature(s) are necessary to spend. This cosigning arrangement is expressed as a descriptor combining key material controlled by the user with key material controlled by the AMP2 server.
+
+A naive approach would let each wallet implementation choose its own derivation paths and script structure for combining the user's and the AMP2 server's keys.
+However, a wallet is ultimately recovered from its master secret, and an ad-hoc, implementation-specific construction would tie a user's funds to the wallet software that originally created them.
+Users would be unable to independently verify that their wallet was set up correctly, nor recover it, or migrate to another wallet, without relying on that specific implementation.
+
+This ELIP defines a standard way to derive AMP2 descriptors that:
+* Combines the user's key material with the AMP2 server's key material in a well-defined script structure
+* Is derived deterministically from the user's master secret and the AMP2 server's public information
+* Enables interoperability between wallet software implementing the AMP2 protocol, including recovery from the user's master secret and the AMP2 server's extended public key
+
+==Design==
+
+===Specification===
+
+An AMP2 [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki CT Descriptor] has multiple components:
+* The overall script structure combining the user's and the server's keys
+* The user's extended public key, <code>USER_XPUB</code>
+* The AMP2 server's extended public key, <code>SERVER_XPUB</code>
+* The descriptor blinding key, <code>VIEW</code>
+
+The following sections detail how to derive them and explain their rationale.
+
+====Descriptor Structure====
+
+AMP2 descriptors use a <code>P2WSH</code> 2-of-2 multisig script:
+<pre>
+ct(VIEW,elwsh(multi(2,SERVER_XPUB/<0;1>/*,USER_XPUB/<0;1>/*)))
+</pre>
+
+The script requires two signatures out of the two keys <code>SERVER_XPUB</code> and <code>USER_XPUB</code>, so that neither the user nor the AMP2 server can unilaterally move funds: every spend must be cosigned by the AMP2 server, which enforces the transfer authorization policy, and by the user, who retains custody of their own key.
+
+A plain, segwit v0 <code>multi</code> expression was chosen over alternatives such as <code>tr</code>/MuSig2, <code>sh-multi</code> or bare multisig because it is a long-established, widely deployed construction: it does not require an interactive key-aggregation or signing protocol between the user and the server, and it is broadly supported by wallet software, HW signers, and HSMs already in production use. This makes it straightforward for existing signing devices to participate in AMP2 wallets without additional development.
+
+<code>USER_XPUB</code> and <code>SERVER_XPUB</code> are followed by two extra derivation steps for change and address index: <code>/<0;1>/*</code>.
+
+Derivation of <code>USER_XPUB</code>, <code>SERVER_XPUB</code> and <code>VIEW</code> is defined in the sections below.
+
+====User Xpub====
+
+<code>USER_XPUB</code> is derived from the user master key using <code>USER_PATH</code>, a [https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki BIP44] derivation path:
+<pre>
+USER_PATH = m/purpose'/coin_type'/account'
+</pre>
+Where <code>purpose</code> is <code>1095585842</code> (hex <code>0x414d5032</code>, bytes <code>b'AMP2'</code>).
+
+<code>coin_type</code> follows [https://github.com/satoshilabs/slips/blob/master/slip-0044.md SLIP-44], and is <code>1776</code> on Liquid mainnet, and <code>1</code> on Liquid Testnet and Liquid Regtest.
+
+The <code>account</code> field makes it possible to derive multiple AMP2 accounts from the same master secret.
+
+[https://github.com/bitcoin/bips/blob/master/bip-0087.mediawiki BIP87] is not used, as its purpose field is not specific to AMP2 and could be used for other multisig setups.
+
+====Server Xpub====
+
+<code>SERVER_XPUB</code> is derived from the AMP2 server's extended public key via <code>SERVER_PATH</code>, a user-specific, unhardened derivation path<ref>AMP2 servers advertise their extended public key: it can be the master xpub <code>[server_fingerprint]MASTER_SERVER_XPUB</code>, or any derived xpub <code>[server_fingerprint/PATH_FROM_MASTER]DERIVED_SERVER_XPUB</code>; while <code>SERVER_PATH</code> is a deterministic unhardened path, <code>PATH_FROM_MASTER</code> can be any path, even hardened.</ref>.
+<code>SERVER_PATH</code> is derived as follows:
+* Derive <code>USER_XPUB</code> as defined in the previous section, and obtain the corresponding public key, serialized in compressed form (33 bytes)
+* Compute the SHA256 hash of the public key bytes
+* Take the first 12 bytes of the hash
+* Split them into 3 chunks of 4 bytes each
+* For each chunk, clear the most significant bit (mask with <code>0x7FFFFFFF</code>)<ref>Necessary to keep each value below 2**31, and thus a valid unhardened index.</ref>, and convert the result to an integer using big-endian byte order (most significant byte first)
+* Construct <code>SERVER_PATH</code> from the three integers obtained, preserving their order
+
+A user-specific <code>SERVER_XPUB</code> avoids reusing the same server ''public key'' across multiple users. Key reuse would allow blockchain observers to link transactions across users, resulting in a loss of privacy.<ref>This mechanism provides 93 bits of entropy, and is similar to, and inspired by, the GreenAddress/Blockstream Green/Multisig Shield "gait_path" mechanism, used in multisig accounts including AMP0 accounts.</ref>
+
+====Descriptor Blinding Key====
+
+The descriptor blinding key <code>VIEW</code> is a '''view key''' as specified in [https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP-150], derived as follows:
+* Get the fingerprint of the original AMP2 server's master xpub ('''not''' the fingerprint of <code>SERVER_XPUB</code>), <code>server_fingerprint</code>
+* Clear the most significant bit of <code>server_fingerprint</code> (mask with <code>0x7FFFFFFF</code>), and convert the result to an integer using big-endian byte order (most significant byte first), <code>server_fingerprint_masked</code>
+* Derive the user master extended key using <code>VIEW_PATH = m/purpose'/coin_type'/account'/server_fingerprint_masked'</code>, where the first 3 derivation steps are the same as those used for <code>USER_PATH</code>, and the last one is obtained at the step above
+* Get the public key from the obtained xpub, serialized in compressed form (33 bytes)
+* Compute <code>VIEW</code> as the hex-encoded SHA256 hash of the public key bytes
+
+[https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77] is not used, as that descriptor blinding key would be shared with singlesig wallets.
+
+[https://github.com/ElementsProject/ELIPs/blob/main/elip-0151.mediawiki ELIP-151] is not used either, as it derives <code>VIEW</code> from the ordinary (unblinded) descriptor itself: anyone who learns that descriptor, without ever seeing <code>VIEW</code>, can then derive it and unblind the wallet's outputs. This is problematic when the ordinary descriptor is shared with a party that is not meant to unblind the wallet, such as a [https://github.com/RCasatta/waterfalls Waterfalls] server, which needs it to efficiently scan for the wallet's transactions.
+
+This derivation is compatible with HW signers, since they don't need it to export any secret, just another xpub.
+
+For the same user, AMP2 descriptors involving different servers use different descriptor blinding keys, since <code>VIEW_PATH</code> depends on <code>server_fingerprint</code>.<ref>A malicious AMP2 server could grind its key to match the fingerprint of an existing AMP2 server, and thereby obtain the same descriptor blinding key as that server. In practice this attack is not a concern, since AMP2 servers are few and operate under a known reputation.</ref>
+
+==Test Vectors==
+
+The following user mnemonics, account and AMP2 server xpub yield the given CT descriptors and [https://github.com/ElementsProject/ELIPs/blob/main/elip-0152.mediawiki DWIDs] on the specified networks:
+
+* Test Vector 1
+** Description: Liquid
+** Network: Liquid
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[28645006]xpub661MyMwAqRbcGYK6ARxU2GyrYN259h9aaesSRk8TnhgHx54RCAXbcnsvqVPbTcfcR96ucYohYYsu7j3GrowCcrtQ7EjoUDPGjmj4apw3wCk</code>
+** User Account: 0
+** CT Descriptor: <code>ct(a4c4444eae48b72232e3ce3fa8f7e4d75d9da5a4257e908a4ba5adfa7e982bfa,elwsh(multi(2,[28645006/1566545016/81752770/1667703741]xpub6CYNWCA4dpHmy8Kn41tJYysdondHULHQ4WkXj4Af7BbfxyDTV4ayx27KFaSz6o9DLpH6PjQxHCkTspjx8rSHmvmWTqDi3ieXjkd3aFYVUGD/<0;1>/*,[73c5da0a/1095585842'/1776'/0']xpub6DL1t5jE2fzoywD4o3WDjCrjyH74C6mAESxhKXh3inmpdoE2jVwxBJcNaf3v7f5XtKcu6SYiBNjSbXPLsBThvp1RA1CECP1v42qvwuJUQyX/<0;1>/*)))#nz0yy2ml</code>
+** DWID: <code>4b2f-fca3-1d2e-0a8b-0d58-3ef5-9375-12cd</code>
+
+* Test Vector 2
+** Description: Testnet
+** Network: Liquid Testnet
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[28645006]tpubD6NzVbkrYhZ4YLVwccwZECKDsV7j95ee8HTjnJBc8cSBhMj8GPNgmEYm5XUNz7crD3dpE8Ka5ehwouXtFfnSWJLhAqV79k3WKjKULsSTp2C</code>
+** User Account: 0
+** CT Descriptor: <code>ct(e3e3cc5de0e37a0f65b0cb170dcab67ed508a1e76e5b3f0e2aa143b86bc5000b,elwsh(multi(2,[28645006/2088330946/1132574986/2019598932]tpubDCPYh8t4rbkhpDXeVLUdGnjoSLXheJgxyAxj2NGokPTQ89KbKHpa3qZrE8n1i4J1eVMzY2qLqsQoXcxjHHk1qDajRpWhxiud2fbsEVSmsWQ/<0;1>/*,[73c5da0a/1095585842'/1'/0']tpubDDKAX9d8KBy2HJ5UTMg4xydwC7Jssy9qfnKrs5LTpM8PpBAiwqZ7k2GVA2P5kiWCPjnmHbDMxBng8FzDBHVqHpQkAwwc4VzXtGx1AY7zc9C/<0;1>/*)))#k7sxgkyp</code>
+** DWID: <code>ded1-9ff5-4291-6309-3c91-a4d8-cfe5-8f74</code>
+
+* Test Vector 3
+** Description: Regtest
+** Network: Liquid Regtest
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[28645006]tpubD6NzVbkrYhZ4YLVwccwZECKDsV7j95ee8HTjnJBc8cSBhMj8GPNgmEYm5XUNz7crD3dpE8Ka5ehwouXtFfnSWJLhAqV79k3WKjKULsSTp2C</code>
+** User Account: 0
+** CT Descriptor: <code>ct(e3e3cc5de0e37a0f65b0cb170dcab67ed508a1e76e5b3f0e2aa143b86bc5000b,elwsh(multi(2,[28645006/2088330946/1132574986/2019598932]tpubDCPYh8t4rbkhpDXeVLUdGnjoSLXheJgxyAxj2NGokPTQ89KbKHpa3qZrE8n1i4J1eVMzY2qLqsQoXcxjHHk1qDajRpWhxiud2fbsEVSmsWQ/<0;1>/*,[73c5da0a/1095585842'/1'/0']tpubDDKAX9d8KBy2HJ5UTMg4xydwC7Jssy9qfnKrs5LTpM8PpBAiwqZ7k2GVA2P5kiWCPjnmHbDMxBng8FzDBHVqHpQkAwwc4VzXtGx1AY7zc9C/<0;1>/*)))#k7sxgkyp</code>
+** DWID: <code>a73a-c707-978f-cb7c-8912-5868-34c9-ee12</code>
+
+* Test Vector 4
+** Description: Liquid, different account
+** Network: Liquid
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[28645006]xpub661MyMwAqRbcGYK6ARxU2GyrYN259h9aaesSRk8TnhgHx54RCAXbcnsvqVPbTcfcR96ucYohYYsu7j3GrowCcrtQ7EjoUDPGjmj4apw3wCk</code>
+** User Account: 1
+** CT Descriptor: <code>ct(bb2c64d4f5d6d0f467848ea5679d7a06645214c2787440fd45312dbbdd0025c6,elwsh(multi(2,[28645006/613433853/1622795276/321357256]xpub6D7HYys28KEsfohLCGoJT7zpEW4adABiuacczzyDdtoQR95rtc2RXBoH4sgCaxkkzTB69eDhEBiLoev5VYx77jdaZjJueZ1xrm9NSbhspaR/<0;1>/*,[73c5da0a/1095585842'/1776'/1']xpub6DL1t5jE2fzozbCH1A1VxeexbVzYwMARaLDhq8FREmLkDWyu5HnpDrTzVzYBLBnso4G4chhTYZZyGnGrLcR2wg7qPVTdLns5nZ9KgwbQ9iT/<0;1>/*)))#5s600znn</code>
+** DWID: <code>5c5b-05fd-0fe1-58ef-b6a5-c54f-3e56-e478</code>
+
+* Test Vector 5
+** Description: Liquid, different user
+** Network: Liquid
+** User Mnemonic: <code>legal winner thank year wave sausage worth useful legal winner thank yellow</code>
+** AMP2 Server Xpub: <code>[28645006]xpub661MyMwAqRbcGYK6ARxU2GyrYN259h9aaesSRk8TnhgHx54RCAXbcnsvqVPbTcfcR96ucYohYYsu7j3GrowCcrtQ7EjoUDPGjmj4apw3wCk</code>
+** User Account: 0
+** CT Descriptor: <code>ct(4178602d5bd9ad236431aaeea92086c33e326496676b5ef458a5628a40afccf3,elwsh(multi(2,[28645006/1075424887/1038076759/2134735410]xpub6Bu9CyVCvQNHYChzDLGa2QrH3XAYg7xvRYhReTX7b5NvkKyu3MHxnKmBExMyd9TtP3aqtg5t1aCVv17znqaeRjhL1HGK34zYAYf1GJvRTkK/<0;1>/*,[b8688df1/1095585842'/1776'/0']xpub6CGoCXyd13GGVqRamaWQcW6GtCKezevWscBZbuaWvHjXXRjGhzDpcsBPVs19cpz6tiEsdadMgHH8m9CUPQr4unwtPyLeC9S545Dt6eN2pwd/<0;1>/*)))#j6yfhcnk</code>
+** DWID: <code>0328-ea41-7816-2f18-e86d-f110-bec4-f4eb</code>
+
+* Test Vector 6
+** Description: Liquid, different server
+** Network: Liquid
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[3f635a63]xpub661MyMwAqRbcEsjq2muW5PYkDikFgHuWJGzu1WrZiQgHUsgEeKMtGducsZe1iRsGAGNGDzmWYDM69ya24LMyR7mDhtzqQsc286XEQfM2kkV</code>
+** User Account: 0
+** CT Descriptor: <code>ct(72e022e013e18c7eacc659d591b73df99ec749f9ebcf0b7690153d0538f4f5e0,elwsh(multi(2,[3f635a63/1566545016/81752770/1667703741]xpub6DTwkNfd3EDJmyidC6zGYdAGHoMyh13qNRQJKSDzNVPF4LMf7kcULKQ8DuTD6SRovsSJSFcgB3zHFeE1mbe4a548VK8VbabiYZGssURqwx7/<0;1>/*,[73c5da0a/1095585842'/1776'/0']xpub6DL1t5jE2fzoywD4o3WDjCrjyH74C6mAESxhKXh3inmpdoE2jVwxBJcNaf3v7f5XtKcu6SYiBNjSbXPLsBThvp1RA1CECP1v42qvwuJUQyX/<0;1>/*)))#p57xtc0q</code>
+** DWID: <code>7e5d-8182-ec4f-cf90-7be8-20f5-b3d8-8694</code>
+
+* Test Vector 7
+** Description: Liquid, non-master server xpub
+** Network: Liquid
+** User Mnemonic: <code>abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about</code>
+** AMP2 Server Xpub: <code>[28645006/1']xpub68BiZSLmmvzsNBNKP5zaFPFJ4jfnxuyJsfqBFDhnf697oKZM39QkdNgAv7gT1roaPtdfX7ftCLs9Heh7cug7QCfvPMizuXdvxwr8xLC5Esi</code>
+** User Account: 0
+** CT Descriptor: <code>ct(d7b3cf5e00e1f31e5aabb81cd3d9220165751f85ed7ce4bdc886ec42b69b89b5,elwsh(multi(2,[28645006/1'/1566545016/81752770/1667703741]xpub6F9BPbaTxbrBy5E8NPcU33YCzF89yoZr2GKka1hsJWqpdmz9W9vBygEUmHYMaWDRitL7XnPVsip4zgGQwBvCNKybyisuGyaAtSPjLZ8BqmD/<0;1>/*,[73c5da0a/1095585842'/1776'/0']xpub6DL1t5jE2fzoywD4o3WDjCrjyH74C6mAESxhKXh3inmpdoE2jVwxBJcNaf3v7f5XtKcu6SYiBNjSbXPLsBThvp1RA1CECP1v42qvwuJUQyX/<0;1>/*)))#pcdj5lpj</code>
+** DWID: <code>2d62-9c31-7d9a-1ba3-73ff-3c08-8803-aa1d</code>
+
+==Reference Implementation==
+
+Implemented in LWK: https://github.com/blockstream/lwk
+
+==Footnotes==
+
+<references />
