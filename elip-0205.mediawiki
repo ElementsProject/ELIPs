@@ -1,0 +1,1106 @@
+<pre>
+  ELIP: 205
+  Layer: Wallet
+  Title: Transaction Manifests for Simplicity Contracts
+  Author: stringhandler <stringhandler@protonmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-07-02
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This ELIP defines the '''transaction manifest''', a JSON document that describes the transactions of a multi-step protocol on Elements: which UTXOs each transaction consumes, which outputs it creates, and which witnesses are needed to satisfy each input. A wallet that understands the format can execute any protocol described by a manifest, without hard-coded knowledge of that protocol.
+
+The format was designed for driving [https://github.com/BlockstreamResearch/simplicity Simplicity] contracts, where a spend must often recreate covenant outputs with particular amounts, assets and scripts, and where existing descriptor and PSET tooling gives no help with transaction construction. It is not limited to Simplicity, or to covenants, but they are the main use case.
+
+A manifest declares the covenant scripts (''UTXO types'') a contract uses, optional ''contract templates'' that group typed fields with the ''actions'' callable against them, and the actions themselves. Two companion files carry per-deployment data: an ''instance file'' holding the field values fixed when a contract was created, and a ''state file'' tracking the contract's live on-chain UTXO set.
+
+Alongside the transaction description, a manifest carries the signer-facing text a wallet shows before broadcast — an action's <code>intent</code> line and per-leg <code>ui</code> labels — and defines a canonical form so a manifest can be hashed, published and signed under a stable identifier.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Simplicity covenants can express rich spending conditions on Elements, but a covenant program says nothing about ''how'' a wallet should drive it: which UTXOs to select, what each output must contain, which signatures and typed witness values to supply, and how the contract moves from one state to the next. Today every Simplicity protocol needs bespoke wallet integration, so a protocol only works in the wallets whose authors wrote support for it by hand.
+
+Existing tooling does not fill this gap. Output descriptors describe how a wallet spends outputs it owns; they cannot express a multi-step contract in which a spend must recreate outputs with particular amounts, assets, indices and scripts. PSET standardises signing and finalising a transaction that has already been constructed, but not the construction itself. Construction is the part that differs from ordinary wallet behaviour, and it is the part this format describes.
+
+A transaction manifest captures the wallet-facing half of a protocol in one declarative document, in the same way that output descriptors captured the description of ordinary spendable outputs. The format is independent of any particular wallet implementation, and hands off to standard PSET at the signing boundary, so existing Elements wallet machinery can be reused.
+
+==Design==
+
+===Overview===
+
+A live contract deployment is described by up to four files:
+
+{| class="wikitable"
+! File !! Naming convention !! Purpose
+|-
+| Manifest || <code>txmanifest.json</code> || Protocol definition (static; shared across all deployments)
+|-
+| Instance file || <code><name>.instance.json</code> || Per-deployment field values, written by a constructor action
+|-
+| State file || <code><name>.state.json</code> || Live on-chain UTXO set for this deployment
+|-
+| State history || <code><name>.state.history.json</code> || Append-only log of every state transition (optional)
+|}
+
+Tools should auto-derive the companion paths from the manifest's location. Instance and state files are written per deployment; a tool MAY write each action's output as a numbered snapshot (<code><name>.state.1.json</code>, <code><name>.state.2.json</code>, …) so no earlier state is overwritten.
+
+The manifest declares:
+
+* '''UTXO types''': named covenant scripts (SimplicityHL <code>.simf</code> programs) that outputs lock to and inputs spend, together with the parameter interface each type's address derivation is allowed to read.
+* '''Actions''': transaction recipes. Each action declares typed runtime parameters, an ordered list of input descriptors, an ordered list of output descriptors, per-input witness specifications, and the signer-facing text describing what it does.
+* '''Contract templates''' (optional): typed field declarations plus the actions callable against an instance of the template. An action carrying a <code>create_instance</code> block is a constructor, and writes the instance file.
+* '''Formulas''': small build-time expressions (integer arithmetic, comparisons, boolean logic and a few functions) used for amounts, asset references, blinding factors, taproot leaf payloads and computed witness values.
+
+To execute an action, a tool resolves the parameters, selects inputs from the wallet or the state file, constructs the outputs, builds a PSET, blinds it, satisfies the covenant witnesses, shows the signer the clear-signing preview, signs, broadcasts, and updates the instance and state files. The PSET is the boundary between manifest-level reasoning and standard Elements wallet machinery.
+
+===Rationale and Drawbacks===
+
+JSON was chosen for ubiquity and ease of review. The format is not yet content-addressed for transport; compact verifiable transmission (including via QR) is planned as future work. It does, however, define a canonical form and a tagged hash over it, so a manifest can be published under a stable id and signed (see ''Canonical Form and Manifest ID'').
+
+The format is not tied to Simplicity, or to covenants at all. The <code>script.type</code> field is extensible, and Simplicity is currently the only defined program type. The same model (typed params, UTXO selection, output recipes, per-input witnesses) works for any protocol whose transactions must follow a set shape, whether that shape is enforced by a covenant, by counterparties, or only by convention.
+
+The formula language is intentionally small: no loops, no user-defined functions, integer-only arithmetic. This keeps independent implementations small and evaluation deterministic. Values that are not numbers — asset ids, entropies, script hashes — are read through reference resolution rather than arithmetic, which is why the <code>$</code>-prefixed string forms exist.
+
+The clear-signing metadata (<code>intent</code>, <code>ui</code>) is author-supplied and therefore only as trustworthy as the manifest's own signature chain. It is not a substitute for what a hardware device verifies. It is nevertheless covered by the manifest id, because leaving it out would let an attacker rewrite the confirmation screen while keeping a valid signature — precisely the attack clear signing exists to stop.
+
+===Specification===
+
+The key words "MUST", "MUST NOT", "SHOULD", and "MAY" are to be interpreted as described in RFC 2119.
+
+Two keys are accepted anywhere in the document and carry no meaning for execution: <code>$comment</code> (authoring notes) and <code>$schema</code> (an editor hint). Both are stripped before hashing. Every other unknown key MUST be rejected.
+
+A JSON Schema (draft-07) for this format is published at <code>https://raw.githubusercontent.com/stringhandler/txmanifest-wallet/main/schema/txmanifest.schema.json</code>, and that URL is what <code>$schema</code> names — either directly, or as a path to a local copy of the same document. It is generated from the reference implementation's model types rather than hand-maintained, so it tracks what that implementation actually parses. Where this document and that schema disagree, this document is the specification and the disagreement is a bug in one of them; the ''Implementation Status'' table below records the differences known at the time of writing.
+
+====Top-Level Structure====
+
+<source lang="json">
+{
+  "manifest_version": "0.2.0",
+  "protocol": "p2pk-simplicity",
+  "description": "...",
+  "chain": "liquid",
+  "simplicity_hl": { ... },
+  "utxo_types": { ... },
+  "actions": { ... },
+  "contract_templates": { ... }
+}
+</source>
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>manifest_version</code> || string || YES || Semver of the manifest file format, not of any tool that reads it. Current value: <code>"0.2.0"</code>.
+|-
+| <code>protocol</code> || string || YES || Kebab-case protocol identifier (e.g. <code>"simplicity-lending"</code>)
+|-
+| <code>description</code> || string || NO || Human-readable protocol description. Developer documentation only; it MUST NOT be shown as signer-facing text.
+|-
+| <code>chain</code> || string || NO || The chain these transactions are built for, as a well-known alias or the BIP-122 chain ID it stands for (see below). Default: <code>"liquid"</code>
+|-
+| <code>simplicity_hl</code> || object || NO || SimplicityHL toolchain settings for this manifest's <code>.simf</code> programs (see below)
+|-
+| <code>utxo_types</code> || object || NO || Map of UTXO type name → UTXO type definition
+|-
+| <code>actions</code> || object || NO || Map of action ID → action definition, for actions that require no instance
+|-
+| <code>contract_templates</code> || object || NO || Map of template name → contract template definition
+|}
+
+====Chain Identification====
+
+<code>chain</code> names the chain the manifest's transactions are built for. It is written either as a '''well-known alias''' or as the '''[https://github.com/bitcoin/bips/blob/master/bip-0122.mediawiki BIP-122] chain ID''' the alias stands for. The two are exactly equivalent; a tool MUST accept both and MUST treat them as the same value.
+
+A BIP-122 chain ID takes the CAIP-2 form <code>"bip122:" + reference</code>, where <code>reference</code> is the first 32 characters of the network's genesis block hash — the same identifier [https://github.com/ElementsProject/ELIPs/blob/main/elip-0144.mediawiki ELIP-144] uses for account and asset identification.
+
+{| class="wikitable"
+! Alias !! BIP-122 chain ID !! Network
+|-
+| <code>liquid</code> || <code>bip122:1466275836220db2944ca059a3a10ef6</code> || Liquid mainnet
+|-
+| <code>liquid-testnet</code> || <code>bip122:a771da8e52ee6ad581ed1e9a99825e5b</code> || Liquid testnet
+|-
+| <code>liquid-regtest</code> || <code>bip122:cc2641af46f536fba45aab6016f63e12</code> || Elements regtest, default chain parameters
+|-
+| <code>bitcoin</code> || <code>bip122:000000000019d6689c085ae165831e93</code> || Bitcoin mainnet
+|-
+| <code>bitcoin-testnet</code> || <code>bip122:000000000933ea01ad0ee984209779ba</code> || Bitcoin testnet
+|}
+
+Aliases exist because these files are written and reviewed by hand. <code>"liquid-testnet"</code> is legible at a glance and hard to typo into something else valid; a 32-character hex prefix is neither, and a manifest that quietly names the wrong network is exactly the mistake worth designing against. The BIP-122 form exists because it is unambiguous, extends to networks that have no alias, and is what the rest of the Liquid wallet-integration stack already speaks.
+
+A network with no alias in the table above MUST be named by its BIP-122 chain ID. Tools MUST NOT invent aliases: a name not in this table is either a chain ID or an error, never a guess. New aliases are added by amending this table.
+
+Every value of <code>chain</code> names exactly one network, and a tool MUST reject a manifest naming a network it is not connected to. A manifest whose actions span more than one chain has no spelling in this version; if one is needed it will be added, and adding it later is cheap precisely because there is no value to reinterpret.
+
+Wherever this document refers to behaviour "on Liquid" or "on Bitcoin" — blinding defaults, the policy asset — the distinction is between an Elements-family chain and Bitcoin, decided by the identified network.
+
+'''Implementation status.''' The reference implementation does not yet implement this section. It recognises the bare names <code>liquid</code>, <code>elements</code>, <code>bitcoin</code> and <code>cross-chain</code>, warns rather than fails on any other value, does not accept the BIP-122 form, and does not check the named network against the one it is connected to — the network its blinding defaults and policy asset come from is the one its own wallet configuration names, not the one the manifest does. Two of the names it accepts have no meaning in this specification: <code>elements</code> does not identify a single network, and <code>cross-chain</code> contradicts the rule that every value of <code>chain</code> names exactly one. Neither should be written in a new manifest.
+
+====SimplicityHL Toolchain Settings====
+
+<code>simplicity_hl</code> describes how the <code>.simf</code> programs are compiled, as distinct from what the protocol does.
+
+{| class="wikitable"
+! Field !! Type !! Default !! Description
+|-
+| <code>debug_symbols</code> || boolean || <code>false</code> || Whether covenant programs are compiled with debug symbols. This changes every program's CMR, and therefore every covenant address, because <code>assert!</code>/<code>panic!</code> embed source information into <code>fail</code>-node commitments. It MUST be set to match the toolchain of any protocol the manifest interoperates with.
+|-
+| <code>unstable_features</code> || array of string || <code>[]</code> || Unstable SimplicityHL compiler features the programs may use — the manifest form of <code>simc -Z <name></code>. Defined names: <code>"imports"</code> (module syntax) and <code>"enums"</code> (<code>enum</code> declarations and <code>EnumName::Variant</code> matches). Enabling a feature only lifts a syntax restriction; it never changes generated code, and therefore never changes a CMR or an address.
+|}
+
+There is deliberately no compiler-version field. SimplicityHL carries its own <code>simc "<range>";</code> source directive, which the compiler enforces across the entry file and every reachable dependency; a second declaration here could only disagree with it.
+
+====UTXO Types====
+
+A UTXO type names a covenant script that outputs lock to and inputs spend from. Inputs reference a UTXO type via <code>utxo_source</code>; outputs lock to one via <code>destination</code>; the state file tracks live UTXOs by their type name.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>description</code> || string || YES || Human-readable purpose. The type's only required field, and developer documentation like every other <code>description</code>: it is excluded from the manifest id and MUST NOT be shown as signer-facing text.
+|-
+| <code>script</code> || object || NO || The covenant program (see below). Omitted, the type names a UTXO the manifest does not itself lock — one already on chain under some other arrangement — and a tool MUST NOT derive an address for it.
+|-
+| <code>params</code> || object || NO || This type's parameter interface; map of name → UtxoParamDef (see below)
+|-
+| <code>asset</code> || string || NO || The asset this type is expected to hold. Same syntax as the input <code>asset</code> field. Documentation only: it constrains nothing, and an input or output naming this type states its own <code>asset</code> independently.
+|-
+| <code>state_vars</code> || object || NO || Named state variables, each an object carrying a <code>default_value</code>, referenced from a taproot leaf payload by <code>{"state_var": "name"}</code> (see ''Taproot Leaves'')
+|}
+
+A UTXO type carries no amount and no confidentiality setting. It describes an ''address'' — the script funds are locked to — and both of those are properties of an individual output, declared there.
+
+
+'''Script definition:'''
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>type</code> || string || YES || Covenant program type. Currently only <code>"simplicity"</code>.
+|-
+| <code>source</code> || string || NO || Path to the <code>.simf</code> source file, relative to the manifest. Optional only because <code>type</code> is extensible: for <code>"simplicity"</code> — the one type defined — a tool MUST reject a script that omits it, since there is nothing to compile and therefore no address.
+|-
+| <code>compile_params</code> || object || NO || Wires the program's own <code>.simf</code> parameters to manifest values (see below)
+|-
+| <code>extra_leaves</code> || array || NO || Additional taproot leaves folded into the tap tree (see ''Taproot Leaves'')
+|}
+
+'''Compile-param wiring.''' A <code>.simf</code> program declares its own compile-time parameters, and the covenant's address cannot be computed until every one is given a value. The <code>compile_params</code> map supplies them: each '''key''' is a parameter name from the <code>.simf</code>, and each '''value''' is what to bind it to.
+
+<source lang="json">
+{
+  "compile_params": {
+    "PUB_KEY": "BORROWER_PUB_KEY",
+    "ASSET_AMOUNT": "1",
+    "WITH_ASSET_BURN": "true"
+  }
+}
+</source>
+
+Parameters may be bound in either of two places:
+
+* '''On the UTXO type's own <code>script</code>''', for values fixed across every use of the covenant. A value is a string literal (e.g. <code>"1"</code>, <code>"true"</code>), a bare name resolved as an instance field, or a <code>params.X</code> reference resolved against the type's own <code>params</code> interface when one is declared.
+* '''Inline at a reference site''', on an input's <code>utxo_source</code> or an output's <code>destination</code>, for values known only per-action. Inline values are formula expressions in the action's context (e.g. <code>params.pubkey</code>).
+
+<source lang="json">
+{
+  "destination": {
+    "utxo_type": "p2pk_output",
+    "compile_params": {
+      "PUB_KEY": "params.pubkey"
+    }
+  }
+}
+</source>
+
+Inline <code>compile_params</code> supplement, and override, any bound on the UTXO type's own <code>script</code>.
+
+'''The <code>params</code> / <code>args</code> boundary.''' Declaring <code>params</code> on a UTXO type closes its scope: <code>script.compile_params</code> and <code>extra_leaves</code> then resolve <code>params.X</code> against ''those'' params and nothing else. A site binds them with <code>args</code>, whose values are expressions evaluated in the ''action's'' scope:
+
+<source lang="json">
+{
+  "utxo_types": {
+    "market": {
+      "description": "A prediction market, at whichever state its address encodes.",
+      "params": {
+        "STATE":  { "type": "u64", "description": "0 dormant, 1 live, 2 settled." },
+        "EXPIRY": { "type": "u32", "default": "instance.EXPIRY_TIME" }
+      },
+      "script": {
+        "type": "simplicity",
+        "source": "./market.simf",
+        "compile_params": {
+          "EXPIRY_TIME": "params.EXPIRY"
+        },
+        "extra_leaves": [
+          { "type": "tapdata",
+            "payload": [ { "value": "params.STATE", "type": "u64", "endian": "be" } ] }
+        ]
+      }
+    }
+  },
+  "actions": {
+    "Settle": {
+      "inputs": [
+        { "id": "live_in",
+          "utxo_source": { "utxo_type": "market", "args": { "STATE": "1" } } }
+      ],
+      "outputs": [
+        { "id": "settled_out",
+          "destination": { "utxo_type": "market", "args": { "STATE": "2" } },
+          "asset": "lbtc", "amount_sat": "live_in.amount_sat" }
+      ]
+    }
+  }
+}
+</source>
+
+Both params are consumed by the derivation, in the two places that are allowed to read them. <code>EXPIRY</code> reaches the program as a compile-time constant, so it changes the CMR. <code>STATE</code> is hashed into a <code>tapdata</code> leaf, so it changes the tap tree. Neither is stored anywhere: the state ''is'' the address.
+
+That is also why <code>Settle</code> binds <code>args</code> twice. The input and the output name the same <code>utxo_type</code>, and the two <code>STATE</code> bindings derive two different addresses — spending the live market and paying the settled one. <code>EXPIRY</code> is bound at neither site, so both fall back to its default and land on the same value, which is what keeps the two addresses two states of one market rather than two unrelated covenants.
+
+Each UtxoParamDef carries a <code>type</code> (required; the same type vocabulary action params use), an optional <code>description</code>, and an optional <code>default</code>. A default is evaluated in '''instance scope''' — a literal, or <code>instance.X</code> naming a field fixed when the contract was instantiated. Action scope is deliberately unreachable there: a value that varies per run is exactly what a site must bind explicitly. Every param without a default MUST be bound by every site, and a tool MUST reject a site that binds a name the type does not declare, or that supplies <code>args</code> to a type with no <code>params</code> interface at all.
+
+A UTXO type without a <code>params</code> interface keeps the legacy behaviour, in which leaves and compile params resolve against whatever is ambient at each mention. New manifests SHOULD declare the interface.
+
+====Taproot Leaves====
+
+<code>extra_leaves</code> appends data leaves to the Simplicity program leaf, which is how a covenant carries mutable state in its own address. Each leaf is:
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>type</code> || string || YES || Hashing scheme. Only <code>"tapdata"</code> is defined.
+|-
+| <code>payload</code> || array || YES || Ordered payload items, concatenated into the leaf's byte string
+|}
+
+A <code>tapdata</code> leaf hashes its payload as <code>SHA256(SHA256("TapData") ‖ SHA256("TapData") ‖ payload)</code> — the value a program computes with <code>jet::tapdata_init()</code>, <code>sha_256_ctx_8_add_*</code> and <code>finalize</code> — and the resulting leaves are folded into the tap tree in declaration order, matching <code>jet::build_tapbranch</code>.
+
+A payload item is one of:
+
+* a hex string literal taken as raw bytes (<code>"0x01"</code>), whole bytes only;
+* a computed value: <code>{"value": <ref-or-literal>, "type": "u8"|"u16"|"u32"|"u64"|"bytes32"|"bytes"|"pubkey", "endian": "le"|"be", "pad_to": <bytes>, "align": "left"|"right"}</code>. Integers default to little-endian; <code>pad_to</code> zero-pads to that total width, on the left when <code>align</code> is <code>"right"</code> (the default) and on the right when it is <code>"left"</code>;
+* <code>{"state_var": "name"}</code>, whose <code>default_value</code> from the type's <code>state_vars</code> is encoded as a single <code>u8</code>. The value is written as a decimal '''string''' — <code>{"state_vars": {"phase": {"default_value": "1"}}}</code> — not as a JSON number.
+
+The payload's width MUST match what the <code>.simf</code> hashes: <code>sha_256_ctx_8_add_32</code> wants exactly 32 bytes, <code>add_8</code> exactly 8. A mismatch yields a perfectly valid address that the covenant then refuses to recognise as its own.
+
+<source lang="json">
+{
+  "extra_leaves": [
+    { "type": "tapdata",
+      "payload": [ { "value": "1", "type": "u64", "endian": "be" } ] }
+  ]
+}
+</source>
+
+====Contract Templates====
+
+A contract template groups typed field declarations with the actions callable against an instance of them. It is the mechanism by which one manifest describes a protocol that can be deployed many times with different terms.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>description</code> || string || NO || Human-readable purpose
+|-
+| <code>fields</code> || object || NO || Field declarations; map of name → FieldDef (<code>type</code> required, plus optional <code>description</code> and <code>default</code>). Names and types only — values are set by a constructor.
+|-
+| <code>actions</code> || object || NO || Actions callable on an instance of this template
+|}
+
+Template actions are structurally identical to top-level actions; the only difference is that they run against an instance, so their formulas may reference <code>instance.*</code>. An action carrying a <code>create_instance</code> block is a constructor for the template it is declared in. There is no separate flag, and the template is not named inside the block: <code>create_instance</code> is legal only inside <code>contract_templates.<T>.actions.*</code>, and always creates a <code><T></code>.
+
+<source lang="json">
+{
+  "create_instance": {
+    "fields": {
+      "YES_TOKEN_ASSET":      "$inputs.yes_defining_in.issued_asset",
+      "YES_ISSUANCE_ENTROPY": "$inputs.yes_defining_in.issuance_entropy",
+      "MARKET_ID":            { "type": "tapleaf", "simf": "./market_id.simf" }
+    }
+  }
+}
+</source>
+
+Each field value is a ''compute spec'' (see below).
+
+====Actions====
+
+An action is a single transaction recipe.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>description</code> || string || NO || Human-readable action purpose. Developer documentation; it MUST NOT be used as signer-facing text.
+|-
+| <code>intent</code> || string || NO || One-line statement of what this action does, shown as the first clear-signing screen (see ''Clear-Signing Metadata'')
+|-
+| <code>params</code> || object || NO || Runtime action parameters; map of name → ParamDef
+|-
+| <code>inputs</code> || array || NO || Ordered list of input descriptors
+|-
+| <code>outputs</code> || array || NO || Ordered list of output descriptors
+|-
+| <code>allow_change</code> || string || NO || <code>"none"</code> (default), <code>"lbtc_only"</code>, or <code>"any"</code> (see below)
+|-
+| <code>create_instance</code> || object || NO || Constructor only: the new instance written after broadcast
+|-
+| <code>on_pre_broadcast</code> || object || NO || Hook run after inputs are resolved, before the PSET is built
+|-
+| <code>on_post_broadcast</code> || object || NO || Hook run after broadcast
+|}
+
+'''<code>allow_change</code>.''' Every output a transaction carries must be written in the manifest; the network fee is the single exception, because it has no manifest spelling. A change output is not an exception — its address and amount are chosen by the tool, so adding one silently moves value to a destination the manifest never named. The default is therefore <code>"none"</code>: a surplus in any asset, L-BTC included, is an error, and the action must size its inputs to what it spends. <code>"lbtc_only"</code> permits an L-BTC surplus to be returned to the wallet, which is what ordinary funding actions want because the fee is only known once the size is; a surplus in any other asset remains an error. <code>"any"</code> permits a surplus in any asset. This governs ''undeclared'' change only: an output with <code>"destination": "change"</code> is declared, and permits change for its own asset regardless of the setting.
+
+'''Parameter resolution.''' An action's <code>params</code> are the values that vary from one run to the next. They are '''not''' necessarily prompted for: a manifest describes what an action needs, and it is up to the tool driving it to decide where those values come from. A conforming tool MUST resolve each parameter in this order, and MUST NOT prompt for one an earlier step has already supplied:
+
+# '''<code>compute</code>''', where the ParamDef declares one. Includes <code>{"type": "hook"}</code>, which defers to a hook later in the same run.
+# '''A caller-supplied value.''' A tool SHOULD accept a flat JSON object mapping parameter names to string values, passed alongside the manifest. (The reference implementation takes one as <code>--params <file></code>, and additionally auto-discovers <code><stem>.<network>.json</code> beside the manifest, the explicit file winning; an instance field of the same name outranks both, because it was fixed on chain at deploy time.) This is the path an application drives: a dapp collects whatever input its own interface calls for, and hands the wallet the manifest, the action name and the finished parameter map, so the wallet's only job is to render the clear-signing screens and get an authorisation. An action all of whose parameters arrive this way executes without any prompt at all.
+# '''An interactive prompt''', pre-filled with <code>default</code>. This is the fallback for a tool driving a manifest directly — a CLI, or a wallet opening a manifest with no application in front of it — and it is why <code>description</code> and <code>default</code> exist on a ParamDef. A tool that cannot prompt MUST fail rather than guess.
+
+Nothing in the format requires a wallet to build a bespoke interface per protocol: a parameter's <code>type</code> and <code>description</code> are enough for a generic prompt, and an application that wants more than a generic prompt supplies the values itself.
+
+The name <code>params</code> is kept, rather than <code>args</code>, because <code>args</code> already names a different binding in this format: the values a reference site supplies for a <code>utxo_type</code>'s declared <code>params</code> interface. The two are deliberately distinct — action parameters vary per run, <code>args</code> bind an address derivation at one site — and reusing one word for both would hide that.
+
+'''ParamDef:'''
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>type</code> || string || YES || A type string from the table below
+|-
+| <code>description</code> || string || NO || Human-readable purpose
+|-
+| <code>default</code> || string || NO || Default value, pre-filled when the user is prompted
+|-
+| <code>compute</code> || string or object || NO || How the value is derived. When present the user is never prompted.
+|}
+
+'''Compute specs.''' A compute spec is either a bare expression string — <code>"instance.PRINCIPAL_AMOUNT * 2"</code>, <code>"$params.FOO"</code> — or a structured object dispatched on <code>type</code>. The same shape is used for <code>ParamDef.compute</code>, for <code>create_instance.fields</code> values, and for hook <code>set</code> values.
+
+{| class="wikitable"
+! <code>type</code> !! Fields !! Resolves to
+|-
+| <code>"expr"</code> || <code>expr</code> || Arithmetic over other params and fields; <code>pow(base, exp)</code> is available
+|-
+| <code>"tapleaf"</code> || <code>simf</code>, optional <code>params</code>, <code>depends_on</code>, <code>extra_leaves</code> || Compiles a <code>.simf</code> and returns its Simplicity tapleaf hash (32 bytes, hex)
+|-
+| <code>"script_hash"</code> || <code>address</code> || <code>sha256(scriptPubKey)</code> of an address — exactly what the Simplicity <code>output_script_hash</code> / <code>input_script_hash</code> jets return for a UTXO paying it
+|-
+| <code>"simf_fn"</code> || <code>simf</code>, optional <code>fn</code>, <code>input</code>, <code>compile_params</code> || Calls a named function in a <code>.simf</code> and uses its return value
+|-
+| <code>"wallet"</code> || <code>wallet</code> || A value taken from the executing wallet (see below)
+|-
+| <code>"hook"</code> || — || Declares that a hook later in this run supplies the value
+|}
+
+The legacy key <code>lang</code> is accepted as an alias for the <code>type</code> discriminator.
+
+For <code>"tapleaf"</code>, <code>params</code> gives an explicit map of simf param name → <code>{"value": <ref-or-literal>, "type": <manifest type>}</code>; omitting it passes all current compile params. <code>depends_on</code> names the subset the program actually consumes, so the leaf can be computed as soon as those are resolved rather than waiting for all of them — which is how apparent circular dependencies are broken. <code>extra_leaves</code> folds storage leaves into the tap tree before hashing, so the computed value is the script hash of the address ''with'' its storage leaves.
+
+For <code>"script_hash"</code>, an address and its script hash are two views of one destination: the covenant commits to the hash, the transaction pays to the address, and if they ever disagree the spend fails on-chain. Deriving one from the other is the only way to keep them in step. Blinding is irrelevant — a confidential address has the same scriptPubKey as its unconfidential form.
+
+For <code>"wallet"</code>, the <code>wallet</code> field selects which value:
+
+{| class="wikitable"
+! Value !! Resolves to
+|-
+| <code>"key"</code> || The wallet's x-only BIP340 pubkey. The wallet chooses the derivation path; the manifest does not constrain it, and MUST NOT be written to assume one. Where a protocol needs a particular key rather than whichever the wallet offers, that key is an action parameter of type <code>pubkey</code>, supplied by its holder.
+|-
+| <code>"script_hash"</code> || <code>sha256(scriptPubKey)</code> of the wallet's index-0 explicit output — the committed payout target a covenant checks repayment against
+|-
+| <code>"address"</code> || The explicit address matching <code>"script_hash"</code>. The two are a pair and MUST be derived together.
+|}
+
+A <code>"hook"</code> spec declares a value an <code>on_resolved</code> or <code>on_pre_broadcast</code> block will set. It exists so a hook cannot invent an identifier: without the declaration a typo'd target fills a slot nobody reads and surfaces much later as a wrong covenant address. It also carries the <code>type</code> that byte-order handling depends on.
+
+<source lang="json">
+{
+  "params": {
+    "payout_address":  { "type": "address", "compute": { "type": "wallet", "wallet": "address" } },
+    "payout_hash":     { "type": "bytes32", "compute": { "type": "script_hash",
+                                                         "address": "params.payout_address" } },
+    "total_owed":      { "type": "u64",     "compute": "instance.PRINCIPAL + instance.INTEREST" },
+    "yes_token_asset": { "type": "liquid.asset_id", "compute": { "type": "hook" } }
+  }
+}
+</source>
+
+'''Types.''' Each type string compiles to a SimplicityHL primitive type:
+
+{| class="wikitable"
+! Type string !! SimplicityHL type !! Description
+|-
+| <code>u8</code> / <code>u16</code> / <code>u32</code> / <code>u64</code> || <code>u8</code>/<code>u16</code>/<code>u32</code>/<code>u64</code> || Unsigned integers
+|-
+| <code>bool</code> || <code>bool</code> || Boolean (<code>"true"</code> / <code>"false"</code>)
+|-
+| <code>bytes32</code> || <code>u256</code> || 32-byte raw value
+|-
+| <code>pubkey</code> || <code>u256</code> || 32-byte x-only BIP340 Schnorr public key, not byte-reversed
+|-
+| <code>liquid.asset_id</code> || <code>u256</code> || Liquid asset ID (32 bytes), reversed from display order to internal order
+|}
+
+Asset-ness comes only from a declared <code>liquid.asset_id</code> type. A tool MUST NOT infer it from a parameter's name, because the inferred value would silently skip the required byte reversal.
+
+'''Param-only type.''' ParamDefs MAY additionally use <code>address</code>, a Liquid/Elements address supplied at build time. Unlike the types above it is resolved wallet-side and is '''not''' compiled into a covenant; its typical use is a <code>params.NAME</code> reference as an output <code>destination</code>, letting the caller choose where funds go:
+
+<source lang="json">
+{
+  "params": {
+    "lender_destination": {
+      "type": "address",
+      "description": "Where to send the withdrawn principal + interest."
+    }
+  },
+  "outputs": [
+    { "id": "principal_out", "destination": "params.lender_destination", "asset": "lbtc",
+      "amount_sat": "instance.PRINCIPAL" }
+  ]
+}
+</source>
+
+====Inputs====
+
+An input descriptor declares a UTXO to be consumed.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>id</code> || string || YES || Unique identifier within this action
+|-
+| <code>description</code> || string || NO || Human-readable purpose (developer documentation, not signer-facing)
+|-
+| <code>utxo_source</code> || string or object || YES || How to locate this UTXO (see below)
+|-
+| <code>asset</code> || string || NO || Required asset ID (see below)
+|-
+| <code>amount_sat</code> || number or object || NO || Required amount or constraint (see below)
+|-
+| <code>from_address</code> || string || NO || For <code>"wallet"</code> inputs: constrain coin selection to UTXOs whose scriptPubKey equals this address's. A literal address or a reference resolving to one. Use it to pin an input to a committed address — e.g. so a covenant's collateral is spent from the exact address whose hash it commits to.
+|-
+| <code>required_index</code> || integer || NO || Required transaction input index. Non-negative = absolute (0-based); negative = relative from end (−1 = last). Parsed but not yet enforced by the reference implementation (see ''Implementation Status'').
+|-
+| <code>optional</code> || boolean || NO || If <code>true</code>, the transaction proceeds even if this UTXO is not found. Default: <code>false</code>. Parsed but not yet enforced by the reference implementation (see ''Implementation Status'').
+|-
+| <code>issuance</code> || object || NO || Create or reissue a Liquid asset on this input (see below)
+|-
+| <code>blinding</code> || object || NO || The blinding factors the spent covenant UTXO was created with (see ''Blinding and Confidentiality'')
+|-
+| <code>sequence</code> || number or object || NO || Sets <code>nSequence</code> for BIP68 relative timelocks (see below)
+|-
+| <code>witnesses</code> || object || NO || Per-input witness map (see ''Witnesses'')
+|-
+| <code>on_resolved</code> || object || NO || Hook evaluated once this input's UTXO and issuance attributes are known (see ''Hooks'')
+|-
+| <code>ui</code> || string or object || NO || Clear-signing hint for this leg (see ''Clear-Signing Metadata'')
+|}
+
+'''<code>utxo_source</code>''' takes one of these forms:
+
+{| class="wikitable"
+! Value !! Type !! Description
+|-
+| <code>"wallet"</code> || string || Any wallet-controlled UTXO, selected by asset + amount
+|-
+| <code>{"utxo_type": "name"}</code> || object || Covenant UTXO looked up by type name, from the state file or an equivalent discovery mechanism
+|-
+| <code>{"utxo_type": "name", "args": { ... }}</code> || object || As above, binding the type's declared <code>params</code> interface for this site
+|-
+| <code>{"utxo_type": "name", "compile_params": { ... }}</code> || object || As above, with inline <code>compile_params</code> supplying values known only per-action
+|}
+
+When <code>utxo_source</code> is a covenant type, the input's script is derived from the named UTXO type's script definition; inline <code>compile_params</code> supplement and override those declared on the type's own <code>script</code>.
+
+<source lang="json">
+{
+  "id": "principal_in",
+  "utxo_source": {
+    "utxo_type": "p2pk",
+    "compile_params": { "PUB_KEY": "params.pubkey" }
+  }
+}
+</source>
+
+An input's outpoint MAY instead be pinned by the instance file's <code>provided_inputs</code> map, keyed by the input's <code>id</code>. A pinned outpoint's amount and asset are read from the chain, and those on-chain values outrank anything the manifest or an operator supplies.
+
+'''<code>asset</code>''' takes one of these forms:
+
+* <code>"lbtc"</code> or <code>"bitcoin"</code> — the network policy asset;
+* a 64-character hex asset ID, in the display byte order block explorers print;
+* an [https://github.com/ElementsProject/ELIPs/blob/main/elip-0144.mediawiki ELIP-144] CAIP-19 asset ID — <code>bip122:<reference>/elip144:<hex></code> — whose chain part MUST equal the manifest's <code>chain</code> once any alias is expanded;
+* a reference (<code>"instance.NAME"</code> / <code>"params.NAME"</code>) resolving to any of the above.
+
+The reference implementation accepts the first, second and fourth forms; the CAIP-19 form is specified here but not yet implemented there.
+
+'''<code>amount_sat</code>:''' an exact satoshi value, a formula string evaluated to a u64, or <code>{"min_amount": "expression"}</code> (auto-select a UTXO meeting the threshold).
+
+'''<code>issuance</code>.''' Creates or reissues a Liquid asset as part of the input.
+
+{| class="wikitable"
+! Field !! Required !! Description
+|-
+| <code>kind</code> || YES || <code>"new"</code> for a first issuance, <code>"reissue"</code> to mint more of an existing asset
+|-
+| <code>asset_amount_sat</code> || YES || Asset units to issue, in satoshi denomination; formula or literal
+|-
+| <code>inflation_amount_sat</code> || <code>"new"</code> only || Reissuance token amount; <code>0</code> mints a fixed supply with no reissuance rights
+|-
+| <code>entropy</code> || <code>"reissue"</code> || Reference to the issuance entropy of the original mint
+|-
+| <code>issued_asset</code> || NO || Expected asset ID; a check, not an input
+|}
+
+A new issuance derives its entropy from the outpoint it spends, so <code>entropy</code> and <code>issued_asset</code> do not apply to it. After resolution the created ids are available as <code>inputs.<id>.issued_asset</code> and <code>inputs.<id>.reissuance_token</code>, and the entropy as <code>inputs.<id>.issuance_entropy</code>.
+
+A reissuance needs the '''issuance entropy''' of the original mint — <code>fast_merkle_root([sha256d(defining outpoint), contract_hash])</code>, the value the asset id itself is derived from. It cannot be recovered from anything on chain, because the reissuance token UTXO carries no trace of the outpoint that created it. A constructor MUST therefore capture it at the one moment it exists and hand it back later:
+
+<source lang="json">
+// in the minting action's create_instance:
+"YES_ISSUANCE_ENTROPY": "$inputs.yes_defining_in.issuance_entropy"
+
+// in the reissuing action's input:
+"issuance": {
+  "kind": "reissue",
+  "asset_amount_sat": "params.PAIRS",
+  "entropy": "instance.YES_ISSUANCE_ENTROPY",
+  "issued_asset": "instance.YES_TOKEN_ASSET"
+}
+</source>
+
+<code>issued_asset</code> is optional and is a '''check''': the tool re-derives the asset id from the entropy and MUST refuse to build if the two disagree. An entropy is opaque, and the byte order block explorers print is the reverse of the one used here — without the check, a transposed value still builds a broadcastable transaction that reissues the wrong asset.
+
+Failing that, the entropy MAY come from <code>provided_inputs.<input_id>.issuance_entropy</code> in the instance file. That works, but it travels with an outpoint override that pins the input for ''every'' action sharing its id, long after the pin is correct.
+
+'''<code>sequence</code>.''' Sets the input's <code>nSequence</code> for BIP68 relative timelocks (the <code>check_lock_distance</code> / <code>check_lock_duration</code> Simplicity jets); omitted, the input stays at <code>Sequence::MAX</code> (relative locktime disabled). Forms: <code>{"relative_blocks": "<expr>"}</code> (spendable only after N blocks since confirmation, ≤ 65535), <code>{"relative_seconds": "<expr>"}</code> (rounded up to 512-second units), or a raw <code>nSequence</code> value (literal or formula).
+
+<source lang="json">
+{
+  "sequence": { "relative_blocks": "instance.INHERIT_BLOCKS" }
+}
+</source>
+
+====Outputs====
+
+An output descriptor declares an output to be created.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>id</code> || string || YES || Unique identifier within this action
+|-
+| <code>description</code> || string || NO || Human-readable purpose (developer documentation, not signer-facing)
+|-
+| <code>destination</code> || string or object || YES || Where funds are sent (see below)
+|-
+| <code>amount_sat</code> || number or string || NO || Output amount in satoshis; formula or literal. Omitted only where the amount is implied, as on a <code>"change"</code> output.
+|-
+| <code>asset</code> || string || NO || Asset ID; same syntax as the input <code>asset</code> field
+|-
+| <code>required_index</code> || integer || NO || Required transaction output index (same semantics, and the same caveat, as input <code>required_index</code>)
+|-
+| <code>optional</code> || boolean || NO || If <code>true</code>, output may be omitted. Default: <code>false</code>.
+|-
+| <code>condition</code> || string || NO || Reserved: a formula gating whether the output is created. Declared in the schema but not yet interpreted.
+|-
+| <code>confidential</code> || boolean || NO || Whether this output is blinded (see ''Blinding and Confidentiality'')
+|-
+| <code>blinding</code> || object || NO || Pins this confidential output's blinding factors instead of letting the tool choose them
+|-
+| <code>data</code> || string or object || NO || OP_RETURN payload. Only valid when <code>destination</code> is <code>{"type": "op_return"}</code> or <code>{"type": "burn"}</code>.
+|-
+| <code>ui</code> || string or object || NO || Clear-signing hint for this leg (see ''Clear-Signing Metadata'')
+|}
+
+'''<code>destination</code>:'''
+
+{| class="wikitable"
+! Value !! Description
+|-
+| <code>"wallet"</code> || A fresh wallet receive address
+|-
+| <code>"change"</code> || Wallet change address, amount auto-computed
+|-
+| <code>"params.NAME"</code> / <code>"instance.NAME"</code> || Address resolved from a reference (e.g. a <code>type: "address"</code> param)
+|-
+| a literal address string || That address
+|-
+| <code>{"utxo_type": "name"}</code> || Locks to the named covenant's P2TR address; optionally with <code>args</code> and/or inline <code>compile_params</code>
+|-
+| <code>{"script_hash": "<ref-or-hex>"}</code> || P2TR output built from a 32-byte script hash
+|-
+| <code>{"type": "op_return"}</code> or <code>{"type": "burn"}</code> || OP_RETURN output (asset destroyed); the two forms are synonyms. The payload is the output's own <code>data</code>, or a bare data-less OP_RETURN when <code>data</code> is absent.
+|-
+| <code>{"type": "fee"}</code> || Declares the fee leg; produces no PSET output of its own
+|-
+| <code>{"if": "<expr>"}</code> || Reserved: a destination chosen by a formula. Accepted by the parser but not yet interpreted, in the same way the output's <code>condition</code> field is.
+|}
+
+The list is exhaustive. A destination object carrying any other key, or a <code>type</code> outside this table, MUST be rejected rather than skipped: a misspelled <code>utxo_type</code> that parses is a declared output that silently vanishes from the transaction.
+
+'''OP_RETURN <code>data</code>''' takes either of two forms:
+
+* a <code>concat(a, b, …)</code> expression string, concatenating resolved references and hex literals;
+* an object <code>{"parts": [ … ]}</code> giving an exact binary layout. Each part is <code>{"type": …, "value": <ref-or-literal>}</code>, where <code>u8</code>/<code>u16</code>/<code>u32</code>/<code>u64</code> encode a fixed-width integer (<code>"endian": "le"</code> by default, <code>"be"</code> available), <code>liquid.asset_id</code> emits 32 bytes in internal (reversed) order, and <code>pubkey</code>/<code>bytes32</code>/<code>bytes</code> emit raw bytes in natural order.
+
+All part types are protocol-agnostic. A fixed byte prefix, such as a protocol id or message-type tag, is just a <code>bytes</code> part whose value is a constant.
+
+====Blinding and Confidentiality====
+
+Confidentiality is declared per output, never per UTXO type, because two outputs paying the same covenant address need not agree: a market's live address can hold blinded reissuance tokens beside an explicit collateral UTXO, because the program introspects one as a Pedersen commitment and the other as a plain amount.
+
+It cannot be derived from <code>destination</code> either, even though a Liquid address written in confidential form does carry a blinding key. None of the destinations this format uses is such an address at the point the decision has to be made:
+
+* a <code>utxo_type</code> destination is a covenant address the tool ''derives'', not one an author supplies. A confidential address and its unconfidential form share the same scriptPubKey, so the derivation has nothing to read the answer off;
+* <code>"wallet"</code> and <code>"change"</code> name an address the wallet has yet to generate, and it can generate either form;
+* <code>{"script_hash": …}</code> is a scriptPubKey commitment, which by construction says nothing about blinding.
+
+That leaves only a literal or <code>params.NAME</code> address, where the supplied form does decide it — and for those the field is simply omitted and the address believed. Everywhere else the manifest has to say, because the covenant's expectation, not the address, is what settles it.
+
+<code>confidential</code> defaults to <code>true</code> for wallet and address destinations on Liquid, and to <code>false</code> for covenant (<code>utxo_type</code>) destinations, where a Simplicity program usually has to read the value and the asset with jets such as <code>current_amount</code> and <code>current_asset</code>, which operate on explicit values. On a Bitcoin chain there is no blinding, and <code>confidential: true</code> MUST be rejected there. OP_RETURN outputs are always unblinded.
+
+'''<code>blinding</code>''' declares the asset and value blinding factors of a single output or input, as <code>{"asset_bf": …, "value_bf": …}</code>. Each factor is a 32-byte scalar written as a small decimal (<code>"1"</code>), a <code>0x</code>-prefixed hex string of up to 64 characters, a <code>params.X</code> / <code>instance.X</code> reference resolving to either, or simple arithmetic over one (<code>"instance.RT_FACTOR + 1"</code>).
+
+A wallet normally draws both factors at random, which is right when nothing but the receiver reads them. It is wrong when a ''covenant'' reads them: a program that checks its own outputs' commitments — requiring, say, that each recreated reissuance token advance both factors by exactly one — can only be satisfied by factors the spender chose deliberately, and Elements' <code>blind_last</code> offers no way to say which. A tool MUST therefore run its own blinding pass whenever this field appears.
+
+'''On an output''' <code>blinding</code> pins what the tool would otherwise choose. Omitting one factor leaves it random; omitting both makes the field a no-op. At least one confidential output MUST keep a free <code>value_bf</code>: a transaction's value blinding factors have to sum to zero and the tool solves the last free one to make that true, so pinning every one leaves the transaction unbalanceable. In practice that free output is the change. Pinning an output's <code>asset_bf</code> to a value an input of the same asset already carries MUST be rejected: the surjection proof would have a zero shift to prove.
+
+'''On a covenant input''' <code>blinding</code> is not a choice but a statement of fact — the factors the UTXO being spent was created with. Both halves are required. They are what lets the tool rebuild the confidential prevout that the sighash and the introspection jets need, and (for a reissuance) the <code>assetBlindingNonce</code> Elements demands. A wrong value is caught before signing, because the rebuilt commitments simply will not be the ones on chain.
+
+A reissuance MUST write the spent token's asset blinding factor as its <code>issuance_blinding_nonce</code>: that is the value Elements rebuilds the token's generator from and byte-compares.
+
+Declaring factors this way makes them public to anyone who reads the manifest, trading the output's confidentiality for reissuability. It hides nothing; it only keeps the commitment well-formed. Elements has no explicit reissuance token, so a token that must stay reissuable must stay blinded, with a factor its next spender can reproduce.
+
+====Witnesses====
+
+Witnesses appear in the <code>witnesses</code> field of an input descriptor. Each key is the SimplicityHL witness name as it appears in the <code>.simf</code> source.
+
+The map MUST name '''every''' witness the input's program declares, and nothing else. Nothing is inferred from an omission: anything left out MUST be an error, both at validation time against the <code>.simf</code> and again at run time against the compiled program. An earlier design zero-filled whatever the manifest left out, which made a mistyped witness name and a deliberate omission produce identical transactions.
+
+A value is either the bare string <code>"unused"</code>, or an object carrying a <code>type</code> (and an optional <code>description</code>):
+
+'''<code>"unused"</code>.''' Declares a witness this spending path does not depend on, and supplies the zero its pruned branch wants.
+
+'''<code>"simplicityhl"</code> (static SimplicityHL value).''' Fields: <code>value</code> (required; a SimplicityHL value expression — <code>"0x<hex>"</code> for byte arrays, <code>"Left(())"</code> / <code>"Right(())"</code> for Either types, tuples and arrays written as SimplicityHL writes them), an optional <code>simplicity_type</code>, and an optional <code>inject</code> array placing computed values inside <code>value</code> (see ''Composite witness values'' below).
+
+'''<code>"Signature"</code> (BIP340 Schnorr signature).''' Fields: <code>sig_type</code> (required; currently only <code>"sig_hash_all"</code>) and <code>source</code> (<code>{"type": "wallet", "key": <reference>}</code>, where the reference resolves to a 64-hex-char x-only public key). The tool computes the hash, signs with the wallet key matching the given pubkey, and injects the 64-byte signature as a <code>"simplicityhl"</code> witness. This form replaces the '''whole''' witness; a signature that sits inside a composite value is placed with <code>inject</code> instead. <code>"sig_hash_all"</code> denotes Simplicity's own commitment over the whole transaction, computed from the Elements transaction environment — '''not''' the standard Elements SIGHASH_ALL.
+
+'''<code>"taproot_leaf"</code> (leaf selector).''' Fields: <code>source</code>, a compute spec resolving to the tapleaf hash of the branch to spend, e.g. <code>{"type": "formula", "expr": "pre_lock_leaf"}</code>. This is the one exempt entry: it selects which tap leaf to spend, is never read by the program, and so is matched against neither half of the exhaustiveness rule.
+
+<source lang="json">
+{
+  "witnesses": {
+    "SIGNATURE":  { "type": "Signature", "sig_type": "sig_hash_all",
+                    "source": { "type": "wallet", "key": "params.pubkey" } },
+    "NEW_STATE":  { "type": "simplicityhl", "value": "0x01" },
+    "ORACLE_SIG": "unused"
+  }
+}
+</source>
+
+'''Composite witness values.''' A program need not declare a signature as a witness of its own. It may pack one inside a tuple, an <code>Either</code>, or an array — a single <code>AUTH</code> witness of type <code>Either<(u256, u256), ()></code> carrying both a spend path and the signature that authorises it, say. A bare <code>"Signature"</code> entry cannot express that, because it replaces the whole witness with the 64-byte signature.
+
+For those, a <code>"simplicityhl"</code> witness MAY carry an <code>inject</code> array. <code>value</code> then gives the surrounding value with any well-typed placeholder at each target position, and each <code>inject</code> entry replaces one position:
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>path</code> || array of string || YES || Route from the root of the witness value to the position to replace
+|-
+| <code>value</code> || object || YES || A computed witness spec — the same shapes as a standalone entry, e.g. a <code>"Signature"</code>
+|}
+
+A path segment is <code>"Left"</code> or <code>"Right"</code> to enter an <code>Either</code> branch, or a decimal index to enter a tuple or array position. An empty path addresses the whole witness, which is exactly what a bare <code>"Signature"</code> entry means. A tool MUST check each segment against the witness's resolved SimplicityHL type as it descends, and MUST reject a path that does not match — a route into the wrong branch would otherwise place a valid signature where the program never looks.
+
+<source lang="json">
+{
+  "witnesses": {
+    "AUTH": {
+      "type": "simplicityhl",
+      "simplicity_type": "Either<(u256, u256), ()>",
+      "value": "Left((0x00...00, 0x00...00))",
+      "inject": [
+        { "path": ["Left", "0"],
+          "value": { "type": "Signature", "sig_type": "sig_hash_all",
+                     "source": { "type": "wallet", "key": "params.alice" } } },
+        { "path": ["Left", "1"],
+          "value": { "type": "Signature", "sig_type": "sig_hash_all",
+                     "source": { "type": "wallet", "key": "params.bob" } } }
+      ]
+    }
+  }
+}
+</source>
+
+Injection is structural, not textual: the tool parses <code>value</code> against the witness's type, descends by <code>path</code>, and rebuilds the composite around the replacement. Addressing by path rather than by a placeholder token inside the string keeps a signature from ever being confused with a literal that happens to look like one, and it is the approach the <code>smplx</code> SDK's witness injector already takes.
+
+The reference implementation currently supports only the whole-witness form, so a program that packs a signature into a composite value has to declare that signature as its own witness until <code>inject</code> lands. That constraint belongs to the implementation, not to the format: a manifest MUST NOT be written to depend on a covenant being reshaped to suit it.
+
+====Formula Language====
+
+Formulas are string expressions evaluated by the tool at transaction build time. They appear in input and output <code>amount_sat</code>, in <code>asset</code> and <code>destination</code> references, in blinding factors, in taproot leaf payload values, in compute specs, and in hook values.
+
+'''Operators:''' integer arithmetic <code>+</code> <code>-</code> <code>*</code> <code>/</code> (division truncates); comparisons <code>==</code> <code>!=</code> <code><</code> <code><=</code> <code>></code> <code>>=</code>; boolean logic <code>&&</code> <code>||</code> <code>!</code>; grouping <code>( )</code>.
+
+'''References''' (written bare, no <code>$</code>):
+
+{| class="wikitable"
+! Syntax !! Description
+|-
+| <code>instance.NAME</code> || Instance field by name
+|-
+| <code>params.NAME</code> || Action parameter by name
+|-
+| <code>NAME</code> || A bare, unqualified name resolves as an action parameter
+|-
+| <code>inputs.<id>.<field></code> || A field of a resolved input; the explicit, unambiguous spelling, and the one new manifests SHOULD use
+|-
+| <code><id>.<field></code> || Legacy form of the above. It collides with every other namespace — an input named <code>params</code> would shadow one — and cannot be told apart by shape alone.
+|-
+| <code>fee</code> || Estimated network fee (sats). It starts at <code>0</code> and is recomputed from the transaction's vsize before signing, so an amount like <code>will_in.amount_sat - fee</code> lands on the right value.
+|}
+
+Input fields are:
+
+{| class="wikitable"
+! Field !! Description
+|-
+| <code>amount_sat</code> || Value of the spent UTXO
+|-
+| <code>asset</code> || Asset ID of the '''spent''' UTXO. On an input carrying a new issuance this is the asset going in, not the one created — a wallet L-BTC UTXO minting a new asset has <code>asset</code> = L-BTC.
+|-
+| <code>issued_asset</code> || Asset ID created by this input's issuance, if any
+|-
+| <code>reissuance_token</code> || Reissuance token ID created by this input's issuance, if any
+|-
+| <code>issuance_entropy</code> || The issuance entropy, hex. Available once the PSET is built, so a constructor can persist it.
+|}
+
+The newly created ids are exposed under distinct names rather than shadowing <code>asset</code>, because getting that wrong is silent and expensive: it writes L-BTC's id into a field meant to hold the asset the transaction just created.
+
+'''Functions:''' <code>pow(base, exp)</code> (integer power), <code>concat(a, b, …)</code> (byte concatenation; OP_RETURN <code>data</code> only).
+
+'''String vs. arithmetic evaluation.''' An unprefixed expression is arithmetic and yields a u64. A <code>$</code>-prefixed reference — <code>$params.X</code>, <code>$instance.X</code>, <code>$inputs.<id>.<field></code> — is a direct string lookup, and is how a 32-byte value such as an asset id, a script hash or an entropy reaches a compute spec or a hook, since none of those are numbers.
+
+====Clear-Signing Metadata====
+
+An action carries the text a wallet shows the signer before broadcast. It renders as three screens: the action's <code>intent</code>; a net effect, per asset, of what the wallet gains and loses; and a detailed per-leg breakdown grouped by the account each leg touches.
+
+<code>intent</code> is a one-line statement of what the action does. It supports <code>{ref}</code> and <code>{ref:symbol}</code> interpolation against the execution context. An asset-typed reference MUST carry <code>:symbol</code>, so a wallet can substitute a friendly asset name rather than printing a raw id.
+
+<source lang="json">
+{
+  "intent": "lock the minting rights into a market backed by {instance.COLLATERAL_ASSET_ID:symbol}"
+}
+</source>
+
+Each input and output MAY carry a <code>ui</code> hint, either a bare label string or an object:
+
+{| class="wikitable"
+! Field !! Type !! Description
+|-
+| <code>label</code> || string || One-line description of this leg, at most 64 characters so it fits one row beside the amount and asset symbol
+|-
+| <code>role</code> || string || Optional semantic tag (e.g. <code>"collateral"</code>, <code>"auth_nft"</code>, <code>"fee"</code>)
+|-
+| <code>group</code> || string || Override the net-effect account heading, otherwise derived from the source or destination
+|-
+| <code>hide</code> || boolean || Suppress this leg from the net-effect diff (e.g. pure protocol data). Default <code>false</code>.
+|}
+
+<code>label</code> is the '''only''' signer-facing text for a leg. <code>description</code> MUST NOT be used as a fallback: it is developer documentation, and it is excluded from the manifest id, so treating it as signer-facing would put unsigned text on a confirmation screen.
+
+This metadata is author-supplied. Its trustworthiness rests entirely on the manifest's own publisher signature chain, not on anything a hardware device verifies.
+
+====Hooks====
+
+A hook is a flat map of setter targets to the values they take. One shape serves every hook position — an action's <code>on_pre_broadcast</code> and <code>on_post_broadcast</code>, and an input's <code>on_resolved</code> — because they differ only in when they run.
+
+<source lang="json">
+{
+  "on_resolved": {
+    "set": {
+      "params.YES_TOKEN_ASSET":  "asset",
+      "instance.YES_REISSUANCE": "reissuance_token"
+    }
+  }
+}
+</source>
+
+Targets use dot-path notation: <code>instance.NAME</code> sets a contract-template field, and <code>params.NAME</code> sets an action parameter. A tool MUST reject a target that names an undeclared parameter; a parameter a hook fills is declared with <code>"compute": {"type": "hook"}</code>.
+
+Values are compute specs, the same type <code>create_instance.fields</code> uses, so all three "name → how to produce a value" maps in the format read alike. In hook position only the expression forms are meaningful, and a tool MUST reject the rest.
+
+Within an input's own <code>on_resolved</code>, two bare keywords are self-referential: <code>"asset"</code> resolves to that input's computed issuance asset ID (or its UTXO asset for a non-issuance input), and <code>"reissuance_token"</code> to the computed reissuance token asset ID.
+
+<code>on_resolved</code> runs once the input's UTXO and issuance attributes are known; <code>on_pre_broadcast</code> after all inputs are resolved and before the PSET is built; <code>on_post_broadcast</code> after broadcast, when txids and derived asset ids exist.
+
+====Instance File====
+
+The instance file holds the values fixed when a contract was created. It is written by a constructor — an action carrying <code>create_instance</code> — after broadcast.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>instance</code> || object || NO || <code>{"template": "<name>", "fields": { … }}</code>. <code>template</code> matches a key in <code>contract_templates</code>; <code>fields</code> maps field names to their string values.
+|-
+| <code>provided_inputs</code> || object || NO || Pre-resolved input outpoints, keyed by action input id
+|}
+
+Each <code>provided_inputs</code> entry carries <code>txid</code>, <code>vout</code>, <code>amount_sat</code>, <code>asset</code>, and optionally <code>issuance_entropy</code>. A pinned entry applies to '''every''' action that declares an input with that id, so it should be used only where that is genuinely intended.
+
+<code>instance.NAME</code> in a formula reads <code>instance.fields.NAME</code>.
+
+====State File====
+
+The state file tracks the live on-chain UTXO set for a contract deployment and is updated after every successfully broadcast action.
+
+The state file is close to a standard of its own. Its fixed format makes it an interchange artifact: one tool can produce it, a website can distribute it, and another tool can read it to learn the contract's live UTXO set. A tool is not required to persist one: the manifest format requires only the ability to resolve the covenant UTXOs referenced by <code>utxo_source</code>. Tracking them in a state file is the standard mechanism, but a tool MAY substitute another (chain scanning, an external indexer). Note that chain scanning does not work for confidential protocols — one motivation for the state file.
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>instance</code> || string || NO || Relative path to the companion instance file
+|-
+| <code>last_action</code> || string || YES || Name of the last action that produced this state
+|-
+| <code>utxos</code> || array || YES || All live covenant UTXOs for this deployment
+|}
+
+Each entry in <code>utxos</code>:
+
+{| class="wikitable"
+! Field !! Type !! Required !! Description
+|-
+| <code>utxo_type</code> || string || YES || The UTXO type name (matches <code>utxo_source.utxo_type</code> in action inputs)
+|-
+| <code>utxo_id</code> || string || NO || The <code>id</code> of the output that produced this UTXO; disambiguates multiple UTXOs of the same type
+|-
+| <code>txid</code> || string || YES || Transaction ID (64 hex chars)
+|-
+| <code>vout</code> || integer || YES || Output index
+|-
+| <code>amount_sat</code> || integer || YES || Satoshi amount
+|-
+| <code>asset</code> || string || YES || Asset ID (64 hex chars)
+|}
+
+'''State history.''' A tool MAY additionally keep an append-only log alongside the state file, named by inserting <code>.history</code> before the final <code>.json</code>. It holds <code>{"entries": [ … ]}</code>, each entry recording the <code>action</code> that ran, the <code>txid</code> it broadcast, and the full <code>utxos</code> set that resulted.
+
+====Canonical Form and Manifest ID====
+
+A manifest is meant to be published under a stable id and signed. Hashing the file bytes would make that id depend on things that carry no meaning — key order, indentation, and prose — so a reformat or a typo fix in a description would mint a new id and invalidate the signature.
+
+The '''canonical form''' of a manifest is the parsed JSON with:
+
+* the keys <code>description</code>, <code>$comment</code> and <code>$schema</code> removed at any depth;
+* <code>chain</code> expanded from its alias to the BIP-122 chain ID it stands for, where an alias was used;
+* every object's keys in sorted order;
+* array order preserved, because input and output ordering is consensus-relevant;
+* serialised compactly as UTF-8.
+
+The '''manifest id''' is a BIP-340-style tagged hash over those bytes: <code>sha256(sha256(tag) ‖ sha256(tag) ‖ canonical_bytes)</code>, with <code>tag = "txmanifest/id/v1"</code>. Tagging keeps a manifest id from colliding with a hash computed for another purpose — a script hash, a tapleaf — over coincidentally identical bytes.
+
+The exclusion rule is not "prose versus structure" but "can a user read this before authorising?". Only developer documentation is dropped. Everything a signer reads — <code>intent</code>, <code>ui.label</code>, <code>ui.role</code> — '''is''' hashed.
+
+Expanding the <code>chain</code> alias is the one value normalisation the canonical form performs, and it is there because the alias and the chain ID are defined to be the same value. Without it the same manifest would carry two ids depending on which spelling its author typed, and rewriting <code>"liquid"</code> as its chain ID before publishing would invalidate a signature over a document that had not changed meaning. The expansion is a lookup in a fixed table, so any implementation reaches the same bytes. The reference implementation does not yet perform it — it does not implement the BIP-122 form at all — so its ids agree with this section only for a manifest that writes its chain as an alias, which every manifest written today does.
+
+This is structural canonicalisation only. It is not yet full [https://www.rfc-editor.org/rfc/rfc8785 RFC 8785] JCS: numeric literals are re-serialised rather than normalised per that specification, and strings are not Unicode-normalised (NFC). Manifests carry amounts as strings and ASCII identifiers, so neither bites today, but a registry accepting third-party files SHOULD close both before treating an id as adversarially collision-resistant.
+
+====Behavioral Rules and Invariants====
+
+'''Ordering.''' Input resolution precedes output construction: outputs MAY reference resolved input amounts and assets; inputs MUST NOT forward-reference outputs. Compile params MUST be fully materialized before outputs are evaluated.
+
+'''Covenant address determinism.''' A Simplicity covenant address is fully determined by its <code>.simf</code> source, its compile parameters, the toolchain's <code>debug_symbols</code> setting, and its declared extra leaves:
+
+<pre>
+address = P2TR(internal_key=NUMS, merkle_root=tapbranch(cmr_leaf, extra_leaves...))
+</pre>
+
+The internal key is the NUMS point <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code>; extra leaves are appended in declaration order via TapBranch. The same source, compile parameters, toolchain settings and leaves MUST always produce the same address.
+
+'''Covenant prevout reconstruction.''' A covenant input's prevout is reconstructed, never fetched. A taproot sighash commits to a spent output's asset, value and scriptPubKey and nothing else, and Simplicity's <code>ElementsUtxo</code> — the value <code>inputUTXOsHash</code> covers — carries exactly those three. The asset id and amount, plus the declared blinding factors where the UTXO is confidential, are therefore enough to rebuild the prevout byte-for-byte as far as anything that reads it is concerned: no nonce, no rangeproof, and no network round-trip, so an offline run still works.
+
+'''Witness stack format.''' The witness stack for a Simplicity tapscript input MUST be exactly 4 items, in this order:
+
+<pre>
+[witness_bits_bytes, pruned_program_bytes, cmr_script_bytes, control_block_bytes]
+</pre>
+
+where <code>cmr_script_bytes</code> is the CMR (32 bytes) as a bare script (no script opcodes) and <code>control_block_bytes</code> is a standard BIP341 control block with the Simplicity leaf version.
+
+'''Unknown fields.''' A tool MUST reject a manifest carrying a field it does not implement, rather than silently ignoring it. Silently skipping a field would change the meaning of a transaction. The two documentation keys, <code>$comment</code> and <code>$schema</code>, are the only exceptions.
+
+==Backwards Compatibility==
+
+The transaction manifest is a new, standalone document format. It requires no consensus changes and no changes to existing wallet formats. At the signing boundary the format hands off to a standard PSET, so a wallet that does not implement manifests can still receive, sign, and broadcast the resulting transaction.
+
+The <code>manifest_version</code> field carries the version of the '''format''', which is not the version of any tool that reads it. It moves under semver, with the qualification semver itself places on initial development: while the major version is <code>0</code>, the '''minor''' version is the breaking slot. A tool MUST therefore reject a manifest whose major version it does not support, and — while that major version is <code>0</code> — whose minor version it does not support either.
+
+<code>"0.2.0"</code> is the version this document specifies. It succeeds <code>"0.1.0"</code> and is not compatible with it: <code>"0.1.0"</code> declared confidentiality per UTXO type, and this version declares it per output, so a given manifest is valid under exactly one of the two.
+
+The format carries no compatibility aliases: each thing it can express has exactly one spelling, and a key from an earlier draft is removed rather than deprecated. A pre-1.0 format has no deployed third-party files to protect, and two spellings of one thing cost every implementation a second lookup path for no gain. A tool MUST reject each of the keys below, naming it, rather than ignoring it — a manifest written against an earlier draft otherwise parses clean and builds a different transaction than its author wrote.
+
+Keys that were a '''second spelling''' of something this version still expresses:
+
+{| class="wikitable"
+! Removed !! Say it with
+|-
+| <code>classes</code>, and <code>methods</code> within one || <code>contract_templates</code>, and <code>actions</code> within one
+|-
+| <code>create_instance.class</code> / <code>create_instance.template</code> || Nothing: the instance is always of the enclosing template
+|-
+| <code>is_constructor</code> on an action || The presence of <code>create_instance</code>
+|-
+| <code>derived</code> and <code>formula</code> on a ParamDef || <code>compute</code>, whose bare-string form <code>formula</code> now is
+|-
+| <code>source</code> on a ParamDef (e.g. <code>{"type": "wallet_key"}</code>) || <code>compute</code> and its <code>"wallet"</code> variant
+|-
+| <code>ui</code> on an action (<code>{"action": "…"}</code>) || <code>intent</code>
+|-
+| <code>witnesses</code> on an action || <code>witnesses</code> on the input whose script they satisfy
+|-
+| <code>hooks</code> on an action, and its <code>on_input_resolved</code> || <code>on_resolved</code> on the input
+|-
+| <code>simplicity_hl_version</code>, <code>compile_debug_symbols</code> || The <code>simplicity_hl</code> object
+|-
+| <code>confidential</code> on a UTXO type, and top-level <code>confidential_outputs</code> || <code>confidential</code> on the output
+|-
+| Top-level <code>compile_params</code>, top-level <code>params</code>, top-level <code>source</code> || A template's <code>fields</code>, an action's <code>params</code>, a UTXO type's <code>script.source</code>
+|}
+
+Keys that were '''removed outright''', with nothing replacing them in this version: <code>deploy</code> and <code>attestation_version</code> and <code>errors</code> (never read by anything), <code>lifecycle</code> (a state/transition block nothing enforced), <code>args</code> on an action (a second runtime value namespace beside <code>params</code>; note that <code>args</code> at a <code>utxo_type</code> reference site is an unrelated and current field), and <code>validations</code>.
+
+<code>validations</code> is the one worth naming separately, because dropping it dropped enforcement rather than a spelling. Its rules were per-action assertions over resolved amounts and assets; most were never evaluated, but the few that were checked that two assets in one action were distinct. Nothing in this version says that, so a manifest that needs it must get it from its covenant. A comparison-based replacement is future work.
+
+One compatibility behaviour does remain, because it is a default rather than a spelling: a UTXO type that declares no <code>params</code> interface keeps the older open-scope derivation, in which its leaves and compile params resolve against whatever is ambient at each mention. New manifests SHOULD declare the interface.
+
+==Worked Example==
+
+The smallest complete manifest is a Simplicity pay-to-public-key: a <code>Pay</code> action that locks funds into a covenant output, and a <code>Receive</code> action that spends it back to the wallet with a BIP340 signature. Abridged:
+
+<source lang="json">
+{
+  "manifest_version": "0.2.0",
+  "protocol": "p2pk-simplicity",
+  "description": "Pay-to-public-key using a Simplicity checksig program on Liquid.",
+  "chain": "liquid",
+  "utxo_types": {
+    "p2pk_output": {
+      "description": "A Liquid UTXO locked to PUB_KEY via the compiled p2pk.simf program.",
+      "script": { "type": "simplicity", "source": "./p2pk.simf" },
+      "asset": "lbtc"
+    }
+  },
+  "actions": {
+    "Pay": {
+      "intent": "lock {params.amount_sat} sats to a public key",
+      "allow_change": "lbtc_only",
+      "params": {
+        "pubkey":     { "type": "pubkey" },
+        "amount_sat": { "type": "u64" }
+      },
+      "inputs": [
+        { "id": "funding_input", "utxo_source": "wallet", "asset": "lbtc",
+          "amount_sat": { "min_amount": "params.amount_sat" },
+          "ui": { "label": "funds from your wallet" } }
+      ],
+      "outputs": [
+        { "id": "p2pk_out",
+          "destination": { "utxo_type": "p2pk_output",
+                           "compile_params": { "PUB_KEY": "params.pubkey" } },
+          "amount_sat": "params.amount_sat", "asset": "lbtc",
+          "ui": { "label": "locked to the recipient key" } },
+        { "id": "change_out", "destination": "change", "asset": "lbtc", "optional": true,
+          "ui": { "label": "change returned to you", "role": "change" } }
+      ]
+    },
+    "Receive": {
+      "intent": "spend a p2pk output back into your wallet",
+      "allow_change": "lbtc_only",
+      "params": { "pubkey": { "type": "pubkey" } },
+      "inputs": [
+        { "id": "p2pk_in",
+          "utxo_source": { "utxo_type": "p2pk_output",
+                           "compile_params": { "PUB_KEY": "params.pubkey" } },
+          "witnesses": {
+            "SIGNATURE": { "type": "Signature", "sig_type": "sig_hash_all",
+                           "source": { "type": "wallet", "key": "params.pubkey" } }
+          },
+          "ui": { "label": "the locked output" } },
+        { "id": "fee_input", "utxo_source": "wallet", "asset": "lbtc", "optional": true,
+          "ui": { "label": "input used for paying fees", "role": "fee" } }
+      ],
+      "outputs": [
+        { "id": "received_out", "destination": "wallet", "asset": "lbtc",
+          "amount_sat": "p2pk_in.amount_sat",
+          "ui": { "label": "reclaimed funds" } },
+        { "id": "fee_change", "destination": "change", "asset": "lbtc", "optional": true,
+          "ui": { "label": "change returned to you", "role": "change" } }
+      ]
+    }
+  }
+}
+</source>
+
+Full worked examples live in the [https://github.com/stringhandler/txmanifest-wallet txmanifest-wallet] repository under <code>examples/</code>. Each pairs a <code>txmanifest.json</code> with the <code>.simf</code> covenant sources it references, and the ones with a deployment history carry their instance and state snapshots alongside.
+
+{| class="wikitable"
+! Example !! What it exercises
+|-
+| <code>p2pk</code> || The manifest above: one covenant, one signature witness, no template and no instance
+|-
+| <code>last_will</code> || A recursive covenant with three spending paths — inherit after a relative timelock, cold-key break-out, hot-key refresh — as a contract template with one instance per will
+|-
+| <code>lending</code>, <code>lending_v2</code>, <code>lending_v3</code> || A collateralised lending protocol across several covenants; <code>lending_v3</code> is the current design, built on a persistent issuance-factory covenant
+|-
+| <code>dex</code> || Tessera: a keyless atomic swap offer, one UTXO per all-or-nothing offer, spendable by anyone who pays the asked asset
+|-
+| <code>deadcat</code>, <code>deadcat_v2</code>, <code>deadcat_v3</code> || A binary prediction market with on-chain oracle resolution. <code>deadcat_v3</code> is the one that runs, and is what exercises issuance, reissuance and declared blinding factors; <code>deadcat_v2</code> is kept as a documented dead end
+|-
+| <code>zeroconf</code> || A minimal manifest used to exercise the engine itself
+|}
+
+==Reference Implementation==
+
+An example wallet that consumes transaction manifests, instance files, and state files is available at [https://github.com/stringhandler/txmanifest-wallet txmanifest-wallet]. It also publishes the JSON Schema named in ''Specification'', at <code>schema/txmanifest.schema.json</code>; that file is generated from the wallet's own model types and checked in CI against them, so it describes what that implementation parses rather than what this document specifies.
+
+===Implementation Status===
+
+The reference implementation does not yet cover all of this document. The differences below are the ones known at the time of writing; each is a gap in the implementation, not a licence to write manifests that depend on the gap.
+
+{| class="wikitable"
+! Feature !! Status
+|-
+| <code>chain</code> (''Chain Identification'') || Not implemented. Bare names only, warned rather than rejected, and the connected network is not checked against the declared one.
+|-
+| CAIP-19 <code>asset</code> ids || Not implemented. <code>"lbtc"</code>/<code>"bitcoin"</code>, hex, and references only.
+|-
+| <code>chain</code> alias expansion in the canonical form || Not implemented, following from the above. Ids agree with this document for a manifest that writes an alias.
+|-
+| <code>required_index</code>, on inputs and outputs || Parsed, never checked. Legs land in declaration order, which is what the covenants in <code>examples/</code> happen to need; a reordering that broke one would surface only as an on-chain failure.
+|-
+| <code>optional</code> on an input || Parsed, never acted on. A missing UTXO fails resolution whatever it says.
+|-
+| Output <code>condition</code>, and the <code>{"if": …}</code> destination || Parsed, never interpreted.
+|-
+| Witness <code>inject</code> || Not implemented; only the whole-witness form of a <code>"Signature"</code> is available.
+|-
+| <code>confidential: true</code> on a Bitcoin chain || Not rejected, because no Bitcoin chain is reachable: blinding defaults come from the Elements network the wallet is configured for.
+|-
+| A UTXO type with no <code>script</code>, or a <code>"simplicity"</code> script with no <code>source</code> || Derives an address anyway, from a <code>covenant.simf</code> beside the manifest — a legacy default from before <code>script.source</code> existed. <code>validate</code> catches the second case and reports it; nothing catches the first, so a type that omits <code>script</code> entirely and is then spent from silently resolves to whatever that file compiles to. No example in the repository omits it.
+|}
+
+Two of these — <code>required_index</code> and <code>optional</code> — are worth calling out, because they are silent. A field a tool parses and does not enforce reads, to an author, exactly like one it enforces. The examples in that repository assert an input or output index over a hundred times and none of those assertions is checked, so a tool implementing this document from scratch SHOULD enforce both, and a tool that does not SHOULD say so rather than accept the field.
