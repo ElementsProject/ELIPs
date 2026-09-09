@@ -1,0 +1,243 @@
+<pre>
+  ELIP: 206
+  Layer: Wallet
+  Title: Clear Signing for Liquid Wallets
+  Author: Kyrylo Riabov <kriabov@blockstream.com>
+          Artem Chystiakov <achystiakov@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/ELIPs/pull/40
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-06-09
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This proposal gathers available resources on existing methods to attach and read metadata related to transaction.
+As well as, presents a way to interpret a general-purpose action of signing a transaction on the Liquid network to the user.
+
+It helps users understand the consequences of signing a particular transaction and lowers the risk of blind signing
+as much as possible within provided trust assumptions.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+To expand the Liquid ecosystem, infrastructure and user-facing applications should be able to explain
+to a non-technical user what is happening and which outcomes to expect. Similar to banking systems,
+users should be given as much security as possible by default.
+
+Therefore, ecosystem participants should make as much effort as possible in explaining actions to the user.
+
+==Specification==
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [https://www.rfc-editor.org/rfc/rfc2119 RFC 2119] and [https://www.rfc-editor.org/rfc/rfc8174 RFC 8174] when, and only when, they appear in all capitals.
+
+===High-level verification procedure===
+
+The wallet should show which assets and amounts the user is spending or receiving, so the user can recognize the intended asset and check for unrecognized spendings.
+It should also explain how the transaction affects the user's ability to spend those assets later, including any conditions attached to the new outputs.
+
+On Liquid, spending conditions can be written directly in [Bitcoin Script with Elements extensions](https://github.com/ElementsProject/elements/blob/c7e856fab1b0c4d37005e25c0940184d812a26a0/src/script/interpreter.cpp), expressed using [Miniscript](https://github.com/ElementsProject/elements-miniscript/blob/e6eca8bd52bdc397e7d386b481deb7be980683de/README.md), or written in [Simplicity](https://github.com/BlockstreamResearch/simplicity/blob/91d89bac54e9411281ee3b6e766a0ea20eb0a3d3/README.md).
+Those can require a signature, multiple signatures, a waiting period, or restrictions on the outputs a transaction creates.
+Simplicity programs and the [https://github.com/ElementsProject/elements-miniscript/blob/e6eca8bd52bdc397e7d386b481deb7be980683de/src/extensions/introspect_ops.rs Elements extensions to Miniscript] can also constrain the assets, amounts, scripts, and structure of transaction inputs and outputs.
+For example, the [https://github.com/BlockstreamResearch/damp/blob/96db9a2226951fd1be57a9b1cfb4105ce4dcb2a3/paper/main.tex DAMP paper] describes Simplicity covenants that enforce issuer-defined blacklists, whitelists, and per-transaction payment limits for regulated assets.
+
+Liquid outputs can keep their assets and amounts confidential.
+Wallets should show which outputs use this protection and explain any privacy consequences by modifying those.
+
+The wallet's explanation should distinguish its own checks from information it accepts from an application or registry, and identify any part it cannot explain.
+See [[#Security_considerations|Security considerations]] for the risks involved.
+
+===Asset verification===
+
+Names and tickers such as L-BTC and USDT help users recognize assets.
+The asset identifier itself is 32 bytes.
+[https://github.com/ElementsProject/ELIPs/blob/d886692e44cc7c47340d8659f60f9478707c7ad8/elip-0100.mediawiki ELIP 100] describes how a contract and issuance prevout bind an issued asset's identifier to metadata such as its name, ticker, precision, and issuer domain, etc.
+Wallets and signers MUST follow its applicable verification rules before relying on that metadata.
+
+====Implementation examples====
+
+These products show how wallets and services handle asset metadata.
+
+{| class="wikitable"
+! Project
+! Asset metadata handling
+|-
+| Jade
+| The Liquid signing RPC reads <code>asset_info</code> in [https://github.com/Blockstream/Jade/blob/9c097297f58339c15fb9b8df4c7fe105efefb902/main/process/sign_tx.c#L466-L478 <code>sign_tx.c</code>]. [https://github.com/Blockstream/Jade/blob/9c097297f58339c15fb9b8df4c7fe105efefb902/main/assets.c#L105-L180 <code>assets_get_allocate</code>] recomputes the asset identifier from the contract and issuance prevout before accepting the supplied metadata. [https://github.com/Blockstream/Jade/commit/f6433446ee76a5c9c481452166b7c384bd6bbbf7 Commit <code>f6433446</code>] introduced this RPC support. The limitation is in the separate [https://github.com/Blockstream/Jade/blob/9c097297f58339c15fb9b8df4c7fe105efefb902/main/process/sign_psbt.c#L989-L1007 PSET signing path], which passes no external asset metadata to the display at the linked revision.
+|-
+| Simplicity Lending
+| [https://github.com/BlockstreamResearch/simplicity-lending/pull/124 PR #124], from <code>feat/clear-signing-asset-metadata</code>, added asset metadata integration. The [https://github.com/BlockstreamResearch/simplicity-lending/blob/f1f6c29c592d635775fed2d120bb292e4f418a2e/web/src/lwk/assetContract.ts client] constructs contracts for protocol-issued assets. The [https://github.com/BlockstreamResearch/simplicity-lending/blob/f1f6c29c592d635775fed2d120bb292e4f418a2e/crates/indexer/src/indexer/asset_registration.rs#L87-L140 indexer] checks their issuance binding before registration. The [https://github.com/BlockstreamResearch/simplicity-lending/blob/f1f6c29c592d635775fed2d120bb292e4f418a2e/crates/indexer/src/api/assets/handlers.rs#L32-L62 domain-proof endpoint] serves evidence for known protocol assets, and the [https://github.com/BlockstreamResearch/simplicity-lending/blob/f1f6c29c592d635775fed2d120bb292e4f418a2e/web/src/providers/wallet/WalletProvider.tsx#L327-L346 wallet integration] adds available registry contracts to PSETs. The signer remains responsible for ELIP 100 verification.
+|-
+| Liquid Asset Registry
+| In the published <code>asset_registry</code> implementation, [https://github.com/Blockstream/asset_registry/blob/5ecf533caffeec23ea3887f89ccf0962bf601ebe/src/registry.rs#L47-L59 registration] calls [https://github.com/Blockstream/asset_registry/blob/5ecf533caffeec23ea3887f89ccf0962bf601ebe/src/asset.rs#L135-L147 <code>Asset::verify</code>] to check the contract binding, asset fields, on-chain issuance, and domain association. [https://github.com/Blockstream/asset_registry/blob/5ecf533caffeec23ea3887f89ccf0962bf601ebe/src/entity.rs <code>entity.rs</code>] implements HTTP and DNS domain proofs. The separate [https://github.com/Blockstream/asset_registry_v2/blob/bea05e99b86b0b619dd1c3199e2f30bbcc523b2c/README.md registry v2 trust model] also describes domain verification as an acceptance check at registration time.
+|}
+
+====Asset metadata example====
+
+This excerpt shows an issued asset's metadata in the [https://github.com/Blockstream/asset_registry/blob/5ecf533caffeec23ea3887f89ccf0962bf601ebe/src/asset.rs Liquid Asset Registry] format.
+
+<pre>
+{
+  "asset_id": "ce091c998b83c78bb71a632313ba3760f1763d9cfcffae02258ffa9865a37bd2",
+  "contract": {
+    "entity": {"domain": "tether.to"},
+    "issuer_pubkey": "0337cceec0beea0232ebe14cba0197a9fbd45fcf2ec946749de920e71434c2b904",
+    "name": "Tether USD",
+    "precision": 8,
+    "ticker": "USDt",
+    "version": 0
+  },
+  "issuance_prevout": {
+    "txid": "9596d259270ef5bac0020435e6d859aea633409483ba64e232b8ba04ce288668",
+    "vout": 0
+  }
+}
+</pre>
+
+A wallet still needs to verify metadata supplied by the registry.
+
+The registry expects an HTTP domain proof at <code>/.well-known/liquid-asset-proof-<asset-id></code> in this form, with the placeholders replaced:
+
+<code>Authorize linking the domain name <domain> to the Liquid asset <asset-id></code>
+
+====Issuer and registry trust====
+
+An ELIP 100 check establishes the binding between a contract and an asset identifier.
+It does not establish the issuer's real-world identity, the asset's value, or whether an issuer will honor a redemption promise.
+Those judgments depend on the issuer and the evidence the user relies on about that issuer.
+
+Anyone can issue a different asset with copied metadata, including the same domain string.
+That copied string alone does not satisfy the registry's domain-proof check for the new asset identifier.
+The cited legacy registry implementation also rejects a second registration with the same entity and ticker.
+These acceptance rules depend on the registry enforcing them correctly and on the security of the domain's control.
+A recorded acceptance decision does not prove that the domain remains under the same control or still serves the proof.
+
+The <code>issuer_pubkey</code> field is part of the contract's metadata.
+It does not by itself grant authority to spend or reissue the asset.
+The cited legacy registry implementation uses that key to authorize [https://github.com/Blockstream/asset_registry/blob/5ecf533caffeec23ea3887f89ccf0962bf601ebe/src/asset.rs#L154-L161 deletion of a registration].
+Losing the corresponding private key can prevent that authorization.
+Compromise can allow another party to authorize it.
+Neither event changes the contract already bound to the on-chain asset identifier.
+
+===Verification of spending conditions===
+
+To explain a spend, a wallet needs to identify the method used to lock the funds.
+
+Existing methods shown in the table below demonstrate the portion of functionality that wallets should handle to enable proper explanation of the UTXO spending to the user.
+
+{| class="wikitable"
+! Mechanism
+! What the user needs to understand
+! Reference
+|-
+| Multisignature scripts
+| Which keys authorize the spend and how many signatures are required.
+| [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0011.mediawiki BIP 11]
+|-
+| Absolute and relative timelocks
+| Which block height, time, or output age the spending path requires.
+| [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0065.mediawiki BIP 65], [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0112.mediawiki BIP 112]
+|-
+| Pay-to-script-hash and SegWit script commitments
+| Which redeem script or witness script defines the spending conditions.
+| [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0016.mediawiki BIP 16], [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0141.mediawiki BIP 141]
+|-
+| Taproot
+| Whether the transaction uses the key path or a script path, and what authorizes that path.
+| [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0341.mediawiki BIP 341], [https://github.com/bitcoin/bips/blob/09e21036a4001fe6c9ba65c1d3a39b737768132f/bip-0342.mediawiki BIP 342]
+|-
+| Miniscript
+| Which signatures, hash preimages or timelocks are required, and which inputs and outputs its Elements extensions constrain.
+| [https://github.com/ElementsProject/elements-miniscript/blob/e6eca8bd52bdc397e7d386b481deb7be980683de/README.md Elements Miniscript], [https://github.com/ElementsProject/elements-miniscript/blob/e6eca8bd52bdc397e7d386b481deb7be980683de/src/extensions/introspect_ops.rs Elements extensions]
+|-
+| Simplicity
+| Which signatures or other witness values the program requires, and how it restricts transaction inputs and outputs.
+| [https://github.com/BlockstreamResearch/simplicity/blob/8adafc9b55d694111c99fa11f90c7e48376ed1e5/Simplicity-TR.pdf Simplicity technical report]
+|}
+
+A Simplicity program can require several UTXOs to be spent together and restrict the outputs created by the transaction.
+
+Some of those would require a separate ELIP/BIP to standardize the parsing and explanation for the user.
+In the case of Simplicity, we rely on [https://github.com/stringhandler/ELIPs/blob/41462cfbd02e6eae8795f7753ceb5ef0c779b84c/elip-0205.mediawiki ELIP 205], which is explained in the next section.
+
+====Transaction manifests for Simplicity contracts====
+
+[https://github.com/stringhandler/ELIPs/blob/41462cfbd02e6eae8795f7753ceb5ef0c779b84c/elip-0205.mediawiki ELIP 205] describes how to construct a protocol transaction, including the inputs it consumes, outputs it creates and witnesses needed to satisfy its inputs.
+Its manifests carry signer-facing text to explain the operation.
+The draft currently defines only the Simplicity script type and allows other types to be added.
+A wallet using a transaction manifest to explain a Simplicity operation MUST follow ELIP 205's applicable construction and validation rules.
+ELIP 205 supplies the manifest rules.
+Elements' Simplicity execution rules determine whether the program and witness satisfy the spending conditions.
+The [https://github.com/ElementsProject/ELIPs/pull/41 draft proposal] names [https://github.com/stringhandler/txmanifest-wallet/tree/5624dfc77f742d66798d469de1bb79c8f09fcf0b <code>txmanifest-wallet</code>] as its reference implementation and records known conformance gaps.
+
+==Rationale==
+
+===Readable explanations with supporting evidence===
+
+Clear signing separates a description from the evidence that supports it.
+A familiar ticker or contract name helps the user recognize an operation, but recognition alone cannot establish that the description applies to the transaction being authorized.
+Keeping full identifiers accessible lets the user inspect what a displayed label refers to, including when two assets use the same label.
+
+===Using existing specifications===
+
+ELIP 100 carries issued-asset evidence to offline signers, while ELIP 205 describes how a wallet constructs and explains a protocol transaction.
+Referencing these specifications gives implementers a defined place to find the rules for each part of the review.
+
+===Ongoing work===
+
+ELIP 206 remains a draft under discussion in [https://github.com/ElementsProject/ELIPs/pull/40 PR #40].
+It can be updated as new proposals improve clear signing, existing standards evolve, and implementations provide better ways to explain transactions.
+
+==Backwards compatibility==
+
+This ELIP changes neither Elements consensus nor transaction serialization.
+Wallets can adopt ELIP 100 asset metadata support independently of support for Simplicity transaction manifests.
+
+==Security considerations==
+
+===Misleading metadata===
+
+An attacker can substitute a familiar name or ticker for a different asset.
+Even correctly bound metadata can use a visually confusing label.
+Wallets should make the verification result clear and keep the full asset identifier accessible, following ELIP 100's display guidance.
+Interfaces should defend against Unicode confusables and ambiguous truncation.
+
+===External sources and unavailable evidence===
+
+An authenticated connection identifies the endpoint serving data.
+The wallet must still check that the description matches the transaction.
+A wallet should identify the source of labels and explain what it could not verify.
+Failures and timeouts must not turn an unchecked description into a verified one.
+These recommendations on source attribution and fallback draw on the [https://github.com/ethereum/clear-signing-erc7730-registry/blob/0318f9a51ec4fc7ba4aed6de5e315c8884d1fe38/specs/erc-7730.md#security-considerations security considerations in ERC-7730].
+
+===Confidential transactions===
+
+A signer can produce a valid [https://github.com/ElementsProject/elements/blob/c7e856fab1b0c4d37005e25c0940184d812a26a0/src/script/interpreter.cpp#L2688-L2756 Taproot signature] over confidential commitments without knowing the underlying asset or amount.
+A signer can verify explicit assets and amounts supplied with the [https://github.com/ElementsProject/elements/blob/c7e856fab1b0c4d37005e25c0940184d812a26a0/doc/pset.mediawiki PSET commitment proofs] without holding the blinding keys.
+Without unblinding data or these proofs, it cannot verify a confidential output's claimed asset and amount.
+Sharing an output's unblinding data reveals its asset and amount to the recipient of that data.
+
+===Manifest descriptions===
+
+Signer-facing text in a manifest is author-supplied.
+The user still relies on the manifest author to describe the declared operation honestly.
+A valid signature over a manifest does not make a transaction conform to that manifest.
+
+===Constrained signers===
+
+A hardware or otherwise constrained signer MUST independently verify every transaction-specific claim it marks as verified.
+Host-supplied claims that cannot be checked on the signer MUST be marked unverified or omitted.
+An implementation may split verification across components only when the user can tell which component established each claim and the authorization policy does not silently promote a host assertion.
+
+===Resource exhaustion===
+
+Metadata and manifest parsers handle attacker-controlled input.
+Implementations SHOULD limit document size, nesting, field lengths, compilation work, network requests and cached entries.
+If a resource limit prevents a required verification, the implementation MUST fail closed.
