@@ -1,0 +1,181 @@
+<pre>
+ELIP: 352
+Layer: Applications
+Title: Silent Payments for the Liquid Network
+Author: 42pupusas <technology@illuminodes.com>
+Comments-Summary: No comments yet.
+Comments-URI: TBD
+Status: Draft
+Type: Standards Track
+Created: 2026-06-01
+License: BSD-3-Clause
+</pre>
+
+==Abstract==
+
+This document specifies Silent Payments for the Liquid Network. The key derivation,
+address format, scanning, and spending follow BIP-352<ref name="bip352">BIP-352: Silent Payments. https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki</ref>
+exactly. This specification only adds Liquid-specific differences.
+
+==Copyright==
+
+This document is licensed under the 3-clause BSD license.
+
+==Motivation==
+
+Confidential Transactions (CT)<ref name="ct">Confidential Transactions. https://elementsproject.org/features/confidential-transactions</ref>
+hide a Liquid output's asset and amount but not its
+script. A receiver with one published address has to either reuse it, (linking
+all their payments) or run an interactive protocol to hand out fresh ones. Silent
+Payments remove that trade-off: one static address, a distinct unlinkable output per payment.
+
+==Specification==
+
+We reuse the notation, functions, and conventions of BIP-352. In particular,
+<code>serP(P)</code> is the SEC1 compressed encoding of a point, <code>ser32(i)</code>
+serializes a 32-bit unsigned integer most-significant-byte first, <code>n</code> is the
+secp256k1 curve order, and <code>hash<sub>tag</sub>(x)</code> denotes
+<code>SHA256(SHA256(tag) || SHA256(tag) || x)</code> as defined in
+BIP-340<ref name="bip340">BIP-340: Schnorr Signatures for secp256k1. https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki</ref>.
+
+We additionally define:
+
+* Let <code>blind_tag</code> be the exact 26-byte ASCII string <code>LiquidSilentPayments/Blind</code>.
+
+A mismatch in these bytes breaks unblinding across implementations. The tag is disjoint
+from BIP-352's <code>BIP0352/SharedSecret</code>, so the blinding key and the BIP-352
+output tweak, though both derived from <code>S</code>, do not reveal each other.
+
+A silent payment on Liquid is a BIP-352 output that is additionally made a confidential
+Liquid output, blinded to a per-output blinding key derived from the same shared secret.
+The sender, for each output index <code>k</code>:
+
+* Let <code>S</code> be the shared secret and <code>P_k</code> the output public key, derived as in BIP-352
+* Let <code>scriptPubKey = OP_1 <x_only(P_k)></code>, a BIP-341<ref name="bip341">BIP-341: Taproot: SegWit version 1 spending rules. https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki</ref> Taproot output
+* Let <code>bk_k = int(hash<sub>blind_tag</sub>(serP(S) || ser32(k)))</code>
+** If <code>bk_k = 0</code> or <code>bk_k ≥ n</code>, <code>bk_k</code> is not a valid secp256k1 secret key: as with an out-of-range <code>t_k</code> in BIP-352, this MUST be treated as a failure, not skipped — the sender fails to construct this output and the receiver fails to scan past it. (The probability is about 2<sup>-128</sup> and cannot be triggered by an attacker without solving ECDH.)
+* Let <code>BK_k = bk_k·G</code>
+* Blind the output's asset and amount to <code>BK_k</code>, as for any confidential Liquid output. This includes all witness data required by Liquid consensus — in particular the asset ''surjection proof'', which is built from transaction-level input data as usual and is independent of the silent-payments derivation (it does not involve <code>bk_k</code> or <code>S</code>)
+
+The receiver, having recomputed <code>S</code> as in BIP-352, recomputes
+<code>bk_k</code> and unblinds the output with no out-of-band exchange. Deriving the
+blinding key from <code>S</code> avoids both a fixed address-level blinding key (which
+would link a receiver's outputs) and an interactive per-output exchange.
+
+===Differences from BIP-352===
+
+* '''Output format.''' The output is a ''confidential'' Liquid Taproot<ref name="bip341" /> output, with its asset and amount blinded to <code>BK_k</code>, rather than a bare Taproot output.
+* '''Unblinding does not affect scanning.''' A cryptographic match at index <code>k</code> MUST increment <code>k</code> and continue scanning, even if the output cannot be unblinded; otherwise a sender could truncate a receiver's scan with a single matching but unblindable output.
+* '''<code>outpoint_L</code> encoding.''' Outpoints use the Elements consensus encoding: the 36-byte concatenation of the 32-byte txid followed by the 4-byte little-endian <code>vout</code>. The txid is in ''internal byte order'', i.e. the raw 32 bytes output by the double-SHA256 of the serialized transaction, exactly as they appear inside a serialized transaction input — the ''reverse'' of the big-endian hex string displayed by RPC interfaces and block explorers. For example, output <code>vout = 1</code> of the transaction displayed as
+
+ <code>112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00</code>
+
+is encoded as the 36 bytes
+
+ <code>00ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221101000000</code>
+
+The test-vector txids below are given in internal byte order. Elements also overloads the high bits of <code>vout</code> as issuance (bit 31) and peg-in (bit 30) flags, cleared when the input is parsed<ref name="elementsflags">Elements <code>COutPoint::OUTPOINT_ISSUANCE_FLAG</code> / <code>OUTPOINT_PEGIN_FLAG</code>. https://github.com/ElementsProject/elements/blob/master/src/primitives/transaction.h</ref>; <code>vout</code> here is always the parsed index with both flags cleared (equivalently, <code>vout & 0x3fffffff</code>), matching what every implementation already has after deserializing the transaction. A coinbase input's <code>vout = 0xffffffff</code> carries no flags and is unaffected.
+* '''Input eligibility for peg-ins and issuances.''' A peg-in input spends a Bitcoin-chain output that a Liquid-only client cannot inspect, so it MUST be excluded from the eligible-input list in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#inputs-for-shared-secret-derivation BIP-352 "Inputs For Shared Secret Derivation"] — it contributes no public key to <code>a</code>/<code>A</code> — but its outpoint still participates in <code>outpoint_L</code>, since that is read from the Liquid transaction itself. An input carrying an asset issuance or reissuance is eligible under BIP-352's normal rules unchanged; an issuance does not alter how the input is spent or its scriptPubKey.
+* '''Key derivation path.''' Scan and spend keys use the BIP-352 derivation scheme with the coin type replaced by SLIP-44<ref name="slip44">SLIP-0044: Registered coin types for BIP-0044. https://github.com/satoshilabs/slips/blob/master/slip-0044.md</ref> code 1776 (Liquid): <code>scan_key: m/352'/1776'/account'/1'/0</code> and <code>spend_key: m/352'/1776'/account'/0'/0</code> for mainnet, with coin type <code>1'</code> for testnet and regtest. This keeps Liquid silent-payment keys disjoint from a wallet's Bitcoin silent-payment keys (<code>m/352'/0'/...</code>).
+* '''Address HRP.''' The human-readable part is <code>lqsp</code> (mainnet) or <code>tlqsp</code> (testnet and regtest) — distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and Bitcoin's <code>sp</code>/<code>tsp</code>. The address payload, version symbol (<code>q</code>), and relaxed Bech32 length limit are unchanged from BIP-352.
+* '''Light-client scanning.''' BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> compact filters are unchanged: Elements implements BIP-157/158 identically to Bitcoin Core (<code>NODE_COMPACT_FILTERS</code>, <code>getcfilters</code>/<code>getcfheaders</code>/<code>getcfcheckpt</code>, and the <code>getblockfilter</code> RPC), and filters are built from scriptPubKeys, which CT never blinds. A light client scans for candidate <code>P_k</code> the same way as on Bitcoin, downloading a full block only on a filter match.
+* '''Tweak server.''' The Silent Payments index server specification<ref name="indexserver">Silent Payments Index Server Specification. https://github.com/silent-payments/BIP0352-index-server-specification</ref>, unchanged: publishes <code>T = input_hash·A</code> per transaction; a client computes <code>S = b_scan·T</code>. Its optional <code>dust_limit</code> filtering does not apply on Liquid — output amounts are confidential, so a server cannot tell a dust output from any other; a Liquid tweak server MUST report <code>dust_limit = 0</code> (disabled).
+
+Everything else follows BIP-352 exactly: eligible-input extraction for the four
+BIP-352 input types, the even-Y rule, <code>input_hash</code>,
+<code>S = input_hash·a·B_scan</code>, the output tweak <code>t_k</code>, labels,
+gap-limit scanning, the per-group recipient limit <code>K_max = 2323</code> (a
+sender MUST fail if a recipient group exceeds it; a receiver MUST NOT scan past
+<code>k = K_max</code>), and the Taproot key-path spend with
+<code>d = b_spend + t_k</code>.
+
+===Privacy===
+
+Detecting or unblinding a silent payment requires the Diffie-Hellman shared secret
+<code>S = input_hash·a·B_scan = b_scan·(input_hash·A)</code>. Computing it needs either the
+sender's input secret <code>a</code> or the receiver's secret scan key <code>b_scan</code>,
+so this inherits the BIP-352 privacy model. CT additionally hides the output's amount
+and asset from anyone who holds neither key.
+
+Since <code>bk_k</code> is derived from <code>S</code>, a party holding
+<code>b_scan</code> can unblind the output, not merely detect it. A wallet that
+delegates <code>b_scan</code> to a scanning server therefore reveals the amounts and
+assets of all its incoming silent payments to that server (which still cannot spend
+them without <code>b_spend</code>). Wallets requiring confidentiality against the
+scanning server must scan locally.
+
+==Test Vectors==
+
+All byte strings are hex. Receiver keys are given as raw scalars for reproducibility
+(a wallet would derive them per the key derivation path above); txids are in internal
+byte order:
+
+<pre>
+b_scan  = 1111111111111111111111111111111111111111111111111111111111111111
+b_spend = 2222222222222222222222222222222222222222222222222222222222222222
+</pre>
+
+Two eligible inputs:
+
+<pre>
+input 0: priv = 3131...31 (0x31 x32), outpoint txid = 1010...10 (0x10 x32), vout = 0
+input 1: priv = 3232...32 (0x32 x32), outpoint txid = 2020...20 (0x20 x32), vout = 1
+</pre>
+
+Aggregated values (<code>outpoint_L</code> = input 0, the lexicographically smaller):
+
+<pre>
+A          = 031195a8046dcbb8e17034bca630065e7a0982e4e36f6f7e5a8d4554e4846fcd99
+input_hash = d392922c00280a7e8d282182f5026f2fddbc74c1e1de18b4822128b2b77ec641
+</pre>
+
+Per-output values:
+
+<pre>
+k = 0:
+  P_k = 02a29d9716417c964ca9e477343e71ffe730a4991a3eaad668eabec84e9feb7931
+  BK_k = 0344e1289497e6da66fde710d2f38de053fc07355e405524401d7d609df5a1a8cc
+  bk_k = 70ab8897b64bd21b427339ff4d014b883191ef6425862246c53bfc27a59aa3f0
+  spend priv = f03c436d2cd67ae1fecf7d88a38aa3a03c0abea43feaf6da8eb71e2e3a866bda
+  scriptPubKey = 5120a29d9716417c964ca9e477343e71ffe730a4991a3eaad668eabec84e9feb7931
+
+k = 1:
+  P_k = 0229d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
+  BK_k = 03efdeda770ccdbe8bf466fba48bfd2b2c436ab0c04658fc6d6c277de5078129fa
+  bk_k = 945ba73a9804f62089c7d2ffdc079031031f0aebab372cec17ef9c110ebceb10
+  spend priv = 9eff3472230fc83ef5ea8f8c80401c4eecd595a048bd2482a107d3a49baa5a58
+  scriptPubKey = 512029d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
+</pre>
+
+Mainnet address (HRP <code>lqsp</code>):
+
+<pre>
+lqsp1qqd8n2k7uklxq4aegau7vawtptkgxsja4kt99lpv6krctwpq8tpc65qjxd4lu4etruh9sngx3su9mtqp5fqzxz7re59y5nnez9p03ht3lyudcfhfe
+</pre>
+
+Because blinding factors are randomized per output, the blinded output is not
+byte-reproducible. What matters is that an output blinded to <code>BK_k</code>
+unblinds under <code>bk_k</code> and under no other key.
+
+==Backwards Compatibility==
+
+No consensus change. A silent-payment output is an ordinary confidential Taproot output,
+spent by an ordinary key-path signature, so existing relay and validation rules apply.
+Wallets that don't implement this are unaffected.
+
+==Reference Implementation==
+
+A Python reference implementation, in the style of the canonical BIP-352
+reference, reproduces the test vectors below byte-for-byte and demonstrates
+non-interactive unblinding of the shared-secret-blinded output: [[elip-0352/reference.py|elip-0352/reference.py]]. Wallet integration — scanning, signing, and transaction building — is left to implementations.
+
+==Acknowledgements==
+
+This specification builds on BIP-352, the BIP-352 index server specification<ref name="indexserver" />,
+and the Confidential Transactions work of the Elements Project<ref name="ct" />.
+
+The authors thank JAN3 for sponsoring and supporting this work.
+
+==References==
+
+<references />
