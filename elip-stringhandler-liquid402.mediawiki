@@ -1,0 +1,182 @@
+<pre>
+  ELIP: ?
+  Layer: Applications
+  Title: HTTP 402 Payments over Liquid
+  Author: stringhandler <stringhandler@protonmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-11-05
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This ELIP defines <code>LIQUID402</code>, an HTTP authentication scheme for paid resources. The server answers a request with <code>402 Payment Required</code> and a payment challenge. The client pays it with a Liquid transaction and retries the request with a compact copy of that transaction. The server grants access once the [https://docs.liquid.net/docs/zeroconf Liquid 0-conf service] reports the payment, without waiting for a confirmation.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+[https://github.com/lightninglabs/L402 L402] charges for HTTP resources over Lightning. The client needs channels with outbound liquidity, and the server needs inbound liquidity and must stay online to receive.
+
+Liquid needs neither. A payment is an ordinary transaction in any asset, such as L-BTC or USDt, and can hide its amount and asset from observers. Accepting it at zero confirmations removes the wait for a block.
+
+==Specification==
+
+Challenges and credentials MUST only be sent over HTTPS.
+
+===Challenge===
+
+A server that requires payment responds with status <code>402</code> and a <code>WWW-Authenticate</code> header:
+
+<pre>
+WWW-Authenticate: LIQUID402 address="&lt;address&gt;", asset="&lt;asset id&gt;", amount="&lt;amount&gt;", fee_asset="&lt;asset id&gt;", min_feerate="&lt;rate&gt;", max_unconfirmed_ancestors="&lt;n&gt;", proof="&lt;optional|required&gt;", attesters="&lt;signers&gt;", token="&lt;token&gt;", expires="&lt;time&gt;"
+</pre>
+
+* <code>address</code>: a Liquid address. The server MAY reuse it across challenges. If it is confidential, the payment must be confidential. If it is unconfidential, the payment must be explicit.
+* <code>asset</code>: the asset ID to pay in.
+* <code>amount</code>: the amount to pay, in the asset's base units.
+* <code>fee_asset</code> (optional): the asset the transaction's fee must be paid in. It defaults to the chain's policy asset, which is L-BTC on Liquid. It allows for chains that accept fees in other assets ([[elip-0204.mediawiki|ELIP 204]]).
+* <code>min_feerate</code>: the minimum fee rate of the paying transaction, in base units of <code>fee_asset</code> per vB of discounted virtual size ([[elip-0200.mediawiki|ELIP 200]]). It makes it likely that the payment is mined.
+* <code>max_unconfirmed_ancestors</code>: the most unconfirmed ancestors the paying transaction may have. Servers SHOULD set this to 0, which means the client must spend only confirmed outputs. They MAY set it higher for low-value resources.
+* <code>proof</code> (optional): <code>optional</code> if the server accepts a <code>proof</code> in the credential, or <code>required</code> if it needs one. If it is omitted, the server doesn't accept proofs, and checks the payment itself.
+* <code>attesters</code> (required if <code>proof</code> is present): the signers whose proofs the server accepts, separated by spaces. Each is either a third-party attester's public key, or the word <code>functionaries</code> if the server accepts proofs signed by the functionaries.
+* <code>token</code>: an opaque string chosen by the server that identifies the challenge. It MUST be unguessable, e.g. at least 128 bits of randomness or a MAC. A server can stay stateless by encoding the challenge's parameters, including <code>expires</code>, in <code>token</code> together with a MAC over them, so that clients can't forge or alter them.
+* <code>expires</code>: a Unix timestamp after which the server will not accept a credential for this challenge, except as described under Errors. It SHOULD leave enough time for the payment to confirm.
+
+===Payment===
+
+The client creates and broadcasts a transaction that:
+
+* has exactly one output paying <code>address</code>, of at least <code>amount</code> of <code>asset</code>. The output is blinded if <code>address</code> is confidential, and explicit otherwise;
+* pays its fee in <code>fee_asset</code>, at a rate of at least <code>min_feerate</code>;
+* has at most <code>max_unconfirmed_ancestors</code> unconfirmed ancestors;
+* doesn't signal replaceability ([https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP 125]), and has no unconfirmed ancestor that does;
+* has exactly one <code>OP_RETURN</code> output that pushes 32 bytes, and those bytes are the commitment:
+
+<pre>
+TaggedHash("LIQUID402/commitment", token || salt)
+</pre>
+
+<code>TaggedHash</code> is as defined in [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki BIP 340]. <code>token</code> is taken as its UTF-8 bytes, and <code>salt</code> is 32 random bytes chosen by the client. The commitment binds the payment to <code>token</code> without revealing it.
+
+The client MUST check its transaction against these requirements before broadcasting it. A payment that fails them may never be accepted, and this ELIP gives the client no way to get it back.
+
+===Credential===
+
+The client repeats the request with an <code>Authorization</code> header:
+
+<pre>
+Authorization: LIQUID402 token="&lt;token&gt;", salt="&lt;salt&gt;", tx="&lt;tx&gt;", blinders="&lt;blinders&gt;", proof="&lt;proof&gt;"
+</pre>
+
+* <code>salt</code>: the salt used in the commitment.
+* <code>tx</code>: the paying transaction in the [https://github.com/ElementsProject/elements/blob/master/doc/elements-tx-format.md Elements serialization], with the surjection proof and rangeproof of every output replaced by empty (zero-length) proofs. If that leaves no witness data at all, the transaction is serialized without a witness, with a flags byte of 0. The txid is the double SHA-256 of the transaction serialized with a flags byte of 0 and no witness, so it is unchanged, and matches the txid the 0-conf service reports. Without output witnesses the transaction is a few hundred bytes. With them, it can exceed common HTTP header size limits.
+* <code>blinders</code> (required if <code>address</code> is confidential): the paying output's value, asset blinding factor and value blinding factor.
+* <code>proof</code> (sent only if the challenge has <code>proof</code>, and required if it is <code>required</code>): a signed 0-conf response. It is signed either by a third party that queried the 0-conf service, or by the functionaries themselves, each reporting what is in its own mempool. Both formats are proposed separately. ['''TODO''': reference them once they have ELIP numbers.]
+
+===Proofs===
+
+A <code>proof</code> is accepted only if:
+
+* it is for the txid of <code>tx</code>;
+* its signer is accepted by the challenge's <code>attesters</code>;
+* it reports 0 unconfirmed ancestors. This ELIP doesn't define proofs for transactions with unconfirmed ancestors, which would need a proof for each ancestor;
+* it meets the server's own acceptance policy, such as how many functionaries must have signed.
+
+===Encoding===
+
+* Asset IDs and txids are hex, in the byte-reversed order that Elements displays them, as in the Example.
+* <code>blinders</code> is 72 bytes: the value as an 8-byte big-endian integer, as Elements serializes explicit values, then the asset blinding factor and the value blinding factor as 32-byte scalars. The scalars are in the byte order secp256k1-zkp uses, which is the reverse of the hex that Elements RPCs display.
+* Public keys in <code>attesters</code> are 32-byte x-only keys, in hex.
+* <code>salt</code>, <code>tx</code>, <code>blinders</code> and <code>proof</code> are base64 ([https://www.rfc-editor.org/rfc/rfc4648 RFC 4648]), with padding.
+* <code>amount</code>, <code>max_unconfirmed_ancestors</code> and <code>expires</code> are decimal integers, and <code>min_feerate</code> is a decimal number.
+
+===Verification===
+
+The server:
+
+# looks up <code>token</code>, rejecting it if unknown or forged, or if <code>expires</code> has passed (except as described under Errors);
+# checks that <code>tx</code> has exactly one <code>OP_RETURN</code> output that pushes 32 bytes, and that those bytes are the commitment to <code>token</code> and <code>salt</code>;
+# checks that <code>tx</code> has exactly one output paying <code>address</code>. If <code>address</code> is confidential, it checks <code>blinders</code> against that output's asset and value commitments. Otherwise it reads the output's explicit asset and value;
+# checks that the output's asset is <code>asset</code> and its value is at least <code>amount</code>;
+# checks that the fee is paid in <code>fee_asset</code>, at a rate of at least <code>min_feerate</code>. Removing output witnesses doesn't change the discounted virtual size;
+# checks that neither the transaction nor any of its unconfirmed ancestors signals replaceability. An offline server can only check the transaction itself, so if <code>max_unconfirmed_ancestors</code> is above 0 it has to look the ancestors up;
+# checks that the payment has been seen in mempools: with <code>proof</code> if present (see Proofs), or otherwise, unless the challenge requires a proof, by querying the 0-conf service for the txid of <code>tx</code> and applying its own acceptance policy to the result;
+# checks that the transaction has at most <code>max_unconfirmed_ancestors</code> unconfirmed ancestors, by looking up its inputs. With a <code>proof</code>, the proof's count is used instead, and must be 0;
+# serves the resource.
+
+The server MAY replace the 0-conf service with its own mempool watchers, or with another mempool oracle it trusts.
+
+The server MAY accept the same credential on later requests. How long it stays valid is up to the server.
+
+===Errors===
+
+If verification fails, the server responds with <code>402</code> and adds an <code>error</code> parameter to the challenge:
+
+* <code>error="pending"</code>: the payment may still be accepted. This covers failures in steps 5–8, such as the 0-conf service not having seen the payment yet, or a missing or unaccepted <code>proof</code>. The server repeats the same challenge, with the same <code>token</code>, and SHOULD send a <code>Retry-After</code> header. The client retries with the same credential, and MUST NOT pay again.
+* <code>error="rejected"</code>: the credential can never be accepted. This covers failures in steps 1–4: an unknown, forged or expired token, a missing or wrong commitment, a missing or insufficient payment, or missing or invalid <code>blinders</code>. The server sends a new challenge.
+
+Steps 5–8 only guard against the payment never being mined. A server SHOULD accept a payment that failed only those steps once it is confirmed, even after <code>expires</code>, as long as it was confirmed before <code>expires</code>.
+
+==Rationale==
+
+* '''Why not x402?''' [https://github.com/coinbase/x402 x402] is an existing standard for HTTP 402 payments in on-chain assets. This ELIP doesn't replace it: a Liquid scheme for x402 can still be defined alongside <code>LIQUID402</code>.
+* '''Why an <code>OP_RETURN</code> commitment, and not an address per challenge?''' A new address for each challenge would bind the payment with no extra output, but the server's wallet would have to watch every address it hands out. Most challenges are never paid, which leaves long runs of unused addresses that break gap-limit scanning. A commitment lets the server reuse one address.
+* '''Why send the transaction, and not its txid?''' With only a txid, the server would have to fetch the transaction from a node or indexer. With the transaction it can check the payment offline. Output witnesses are dropped because a full confidential transaction often doesn't fit in an HTTP header: in ELIP 200's example transaction, each blinded output carries 4,277 bytes of proofs.
+* '''Why no refunds?''' A payment script with a refund path, written in miniscript or [https://github.com/BlockstreamResearch/simplicity Simplicity], could let a client reclaim a payment the server never collects. But it would contain the client's key, so each payment would go to a different script. The server's wallet couldn't find these payments by scanning a descriptor. It would only learn of them from credentials, and would have to keep state for every payment. Refunds are left for a future version.
+* '''Why not Lightning?''' L402 can still be used over Lightning, including Lightning on Liquid. <code>LIQUID402</code> sits alongside it, and lets clients and servers take part without setting up Lightning channels.
+
+==Security Considerations==
+
+* '''Low-risk payments only.''' Accepting unconfirmed payments suits low-value resources, where an occasional double-spend is an acceptable loss. A server selling high-value resources should wait for confirmations instead.
+* '''Zero-conf trust.''' The 0-conf service only reports which nodes have the transaction in their mempool. It doesn't guarantee that the transaction will be mined. Protection against double-spends comes from Elements' first-seen mempool policy: of two conflicting transactions, a node keeps the first, unless that one signals replaceability. The same limits apply to the server's own mempool watchers, or to any other mempool oracle it uses instead.
+* '''Replace-by-fee.''' Elements currently supports only opt-in RBF (BIP 125), not full RBF, so the check in step 6 is enough today. If Elements adopts full RBF, any unconfirmed transaction can be replaced, and accepting a payment because nodes have seen it is no longer safe, even with signed attestations.
+* '''Fee rate.''' Input witnesses aren't part of the txid, so the server can't check their size in <code>tx</code>, and the fee rate it computes is the client's claim. Liquid blocks are rarely full, so this matters little for low-value payments.
+* '''Replay.''' A transaction commits to exactly one token, so a payment can't be reused to claim another challenge, even when challenges share an address. Allowing several commitments would let one payment satisfy several tokens. The commitment is a hash, so publishing it on-chain doesn't reveal <code>token</code>.
+* '''Challenge leaks.''' Someone who has seen the challenge, such as a proxy or a log, knows <code>token</code> and <code>address</code>. Without <code>salt</code>, they could find the payment on-chain from its commitment and claim it themselves. The salt is known only to the client until it sends the credential.
+* '''Unblinding.''' The server checks <code>blinders</code>, not the rangeproof, so a client can make a valid payment whose rangeproof the server's blinding key can't rewind. A wallet that finds its funds by rewinding won't see it. Servers can keep the credentials they accept, to recover such payments.
+* '''Privacy.''' Reusing an address links every payment to it on-chain. A fresh address for each challenge avoids that, at the cost of the server watching more addresses. A confidential address also hides the payment's amount and asset. With an unconfidential address, they are public.
+
+==Backwards Compatibility==
+
+<code>LIQUID402</code> is a new HTTP authentication scheme. A server can list several challenges in <code>WWW-Authenticate</code>, so it can offer <code>LIQUID402</code> alongside L402 and let the client choose.
+
+==Example==
+
+A client requests a resource priced at 1000 sats of L-BTC, and pays to a confidential address:
+
+<pre>
+GET /resource HTTP/1.1
+Host: example.com
+
+HTTP/1.1 402 Payment Required
+WWW-Authenticate: LIQUID402 address="lq1qq...", asset="6f0279e9ed041c3d710a9f57d0c02928416460c4b722ae3457a11eec381c526d", amount="1000", min_feerate="0.1", max_unconfirmed_ancestors="0", token="9f2c4e1a7b3d58e06c1f2a9b4d7e3c50", expires="1793836800"
+
+GET /resource HTTP/1.1
+Host: example.com
+Authorization: LIQUID402 token="9f2c4e1a7b3d58e06c1f2a9b4d7e3c50", salt="AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", tx="...", blinders="..."
+
+HTTP/1.1 200 OK
+</pre>
+
+==Test Vectors==
+
+Commitment:
+
+* <code>token</code>: <code>9f2c4e1a7b3d58e06c1f2a9b4d7e3c50</code>
+* <code>salt</code> (hex): <code>000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f</code>
+* commitment: <code>f42fda4ae688660c83d0053ce70e08ba913b6d205c737bc734b0f601d00e481c</code>
+* <code>OP_RETURN</code> script: <code>6a20f42fda4ae688660c83d0053ce70e08ba913b6d205c737bc734b0f601d00e481c</code>
+
+Vectors for <code>tx</code> and <code>blinders</code> will be added with the reference implementation.
+
+==Reference Implementation==
+
+TBD
