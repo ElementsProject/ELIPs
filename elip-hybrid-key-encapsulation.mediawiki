@@ -1,5 +1,5 @@
 <pre>
-  ELIP: ?
+  ELIP: 222
   Layer: Applications
   Title: Hybrid Key Encapsulation for secp256k1 Keys
   Author: Yevhen Hrubiian <yhrubiian@blockstream.com>
@@ -20,7 +20,7 @@
 A cryptographically relevant quantum computer (CRQC) poses a threat to a large body of deployed cryptographic protocols.
 Particularly, it solves the Computational Diffie-Hellman (CDH) problem, so the protocols that use Elliptic Curve Diffie-Hellman (ECDH) key agreement are vulnerable.
 The retroactive CRQC attacks typically affect the privacy of users in such protocols.
-This document specifies '''HKE''', a hybrid key encapsulation built on top of the QSF framework from [https://eprint.iacr.org/2024/039 X-Wing] that derives a 32-byte secret <code>K</code> from two parts: an ECDH on <code>secp256k1</code> and a post-quantum key-encapsulation mechanism [https://csrc.nist.gov/pubs/fips/203/final <code>ML-KEM-768</code>], combined so that <code>K</code> remains pseudorandom even if either component is compromised.
+This document specifies '''HKE''', a hybrid key encapsulation that instantiates the UG framework of the CFRG draft [https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/12/ ''Hybrid PQ/T Key Encapsulation Mechanisms''] and derives a 32-byte secret <code>K</code> from two parts: an ECDH on <code>secp256k1</code> and a post-quantum key-encapsulation mechanism [https://csrc.nist.gov/pubs/fips/203/final <code>ML-KEM-768</code>], combined so that <code>K</code> remains pseudorandom even if either component is compromised.
 
 ===Copyright===
 
@@ -51,12 +51,13 @@ Because every range proof is published on-chain, an attacker equipped with a CRQ
 
 ==Description==
 
-''HKE'' proposed in this ELIP is a slightly modified instantiation of '''QSF''' (''Quantum Superiority Fighter'') — the generic hybrid-KEM combiner framework the [https://eprint.iacr.org/2024/039 X-Wing paper] specifies.
-While the ''X-Wing'' paper instantiates QSF with <code>X25519 + ML-KEM-768 + SHA3</code>, this proposal instead does it with <code>secp256k1 + ML-KEM-768 + SHA256</code> (see [[#rationale|Rationale]]).
+HKE is an instance of '''UG''', the framework that the CFRG draft [https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/12/ ''Hybrid PQ/T Key Encapsulation Mechanisms''] (revision 12, §5.3) defines for combining a post-quantum KEM with a Diffie–Hellman group.
+HKE instantiates it with <code>ML-KEM-768</code>, <code>secp256k1</code> and tagged SHA-256 (see [[#rationale|Rationale]]).
 
-QSF combines the two shared secrets with the classical leg's ciphertext (the ephemeral point <code>E</code>, defined in Specification) and public key <code>B</code>.
-This proposal additionally hashes the PQ ciphertext <code>c</code> and encapsulation key <code>ek</code> as canonical public context.
-That context binding does not change the two QSF component calculations; it prevents the combined secret from being reused under a different PQ key or ciphertext.
+UG's combiner hashes both shared secrets, both ciphertexts and both public keys.
+It is the combiner of [https://eprint.iacr.org/2018/024 Giacon, Heuer and Poettering] with the public keys added, and it has the shape that [https://csrc.nist.gov/pubs/sp/800/227/final NIST SP 800-227] (§4.6.3) recommends for combining KEMs.
+[https://eprint.iacr.org/2024/039 X-Wing], which pairs <code>X25519</code> with <code>ML-KEM-768</code>, uses the combiner of the draft's CG framework instead: it omits the <code>ML-KEM</code> ciphertext and encapsulation key, and in exchange relies on a further security property of <code>ML-KEM-768</code> (see [[#security|Security]]).
+HKE instead hashes them, which adds about 2.3 KB of SHA-256 input per encapsulation, but removes that dependency.
 
 Both parts of the recipient's key are derived from one 32-byte secret <code>msk</code> with separately tagged hashes, so recovering the classical scalar from <code>B</code> with a CRQC does not reveal the ML-KEM decapsulation key.
 
@@ -73,6 +74,7 @@ Both parts of the recipient's key are derived from one 32-byte secret <code>msk<
 * <code>len(x)</code> or <code>|x|</code>: the bytelength of serialized object <code>x</code>.
 * <code>x $= S</code>: draw uniformly random <code>x</code> from the set <code>S</code>
 * <code>K</code>: this document's 32-byte combiner output, the secret HKE ultimately delivers to an application. <code>K_c</code>, <code>K_q</code>: the classical (ECDH) and post-quantum (KEM) shared secrets combined into <code>K</code>.
+* <code>label</code>: the 32-byte ASCII string <code>ELIP-HKE/v1/ML-KEM-768/secp256k1</code>, which ends the input to <code>H_seed</code> (as UG's <code>Label</code>).
 
 This document uses the following tagged hash functions:
 
@@ -102,6 +104,8 @@ This document uses the following tagged hash functions:
 | <code>ELIP-HKE/v1/seed/ML-KEM-768</code>
 | combiner output; the tag names the parameter set
 |}
+
+In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-5.3 UG], the seed is <code>msk</code>, <code>PRG(msk) = H_kem-d(msk) || H_kem-z(msk) || H_blind(msk)</code>, <code>RandomScalar(s) = int(s) mod n</code>, <code>ElementToSharedSecret(P) = H_ecdh(cbytes(P))</code>, <code>KDF = H_seed</code> and <code>Label = label</code>.
 
 ===KEM interface===
 
@@ -156,7 +160,7 @@ EncapsDerand(B_bytes, ek, e, m):
     E_bytes := cbytes(E)
     K_c := H_ecdh(cbytes(e*B))
     (K_q, c) := KEM.Encaps_internal(ek, m)
-    K := H_seed(K_c || K_q || E_bytes || c || ek || B_bytes)
+    K := H_seed(K_q || K_c || c || E_bytes || ek || B_bytes || label)
     Return (K, (E_bytes, c)).</pre>
 
 <code>lift</code> rejects <code>O</code>, any encoding other than the 33-byte compressed one, and <code>X >= p</code>, so every public key has exactly one accepted encoding.
@@ -179,7 +183,7 @@ Output: decryption key <code>K</code>.
     Fail if |c| != L_c.
     K_c := H_ecdh(cbytes(b*E))
     K_q := KEM.Decaps(dk, c)
-    K := H_seed(K_c || K_q || cbytes(E) || c || ek || cbytes(B))
+    K := H_seed(K_q || K_c || c || cbytes(E) || ek || cbytes(B) || label)
     Return K.</pre>
 
 Apart from the two format checks above, <code>Decaps</code> does not fail, except if <code>b = 0</code> in <code>expandDecapsulationKey</code>, which happens with probability <code>2^-255</code>.
@@ -190,14 +194,20 @@ Applications MUST treat this as &quot;output not recovered&quot;, not as a proto
 <span id="security"></span>
 ==Security==
 
-HKE instantiates the QSF combiner of [https://eprint.iacr.org/2024/039 X-Wing] with <code>secp256k1</code> and tagged SHA-256.
+HKE is an instance of UG, so the IND-CCA analyses that the CFRG draft gives for UG ([https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.4.1 §6.4.1], detailed in [https://doi.org/10.62056/ahmp-49p1 Connolly and Grubbs]) apply to it.
 Informally, with the tagged hashes modeled as random oracles, <code>K</code> is indistinguishable from random if either of the following holds:
 
 # '''<code>ML-KEM-768</code> is IND-CCA secure.''' This covers quantum adversaries, with quantum access to the random oracles.
 # '''The strong Diffie–Hellman problem on <code>secp256k1</code> is hard.''' This protects <code>K</code> against classical adversaries if <code>ML-KEM-768</code> is broken: computing <code>K_c</code> requires <code>e*B</code> from <code>B</code> and <code>E</code>, and, as in X-Wing, the proof answers decapsulation queries with a strong Diffie–Hellman oracle.
 
-HKE additionally hashes <code>c</code> and <code>ek</code>, which X-Wing omits.
-Because <code>c</code> is hashed, condition 1 needs only that <code>ML-KEM-768</code> is IND-CCA secure; X-Wing omits <code>c</code> and therefore relies on further properties of <code>ML-KEM-768</code>.
+Condition 1 is the same for X-Wing, whose post-quantum proof also needs only IND-CCA security ([https://eprint.iacr.org/2024/039 X-Wing], Theorem 2).
+Condition 2 is where hashing <code>c</code> matters.
+X-Wing does not hash <code>c</code>, so its classical proof (Theorem 1) also needs <code>ML-KEM-768</code> to be ciphertext second-preimage resistant (C2PRI).
+Without that property, an adversary could find a ciphertext <code>c' != c*</code> that decapsulates to the same <code>K_q</code> as the challenge <code>(E*, c*)</code>, and query the decapsulation of <code>(E*, c')</code> to obtain the challenge key.
+In HKE, <code>c'</code> changes the input to <code>H_seed</code>, which the proof models as a random oracle, so that query yields an independent <code>K</code>, and condition 2 needs nothing from <code>ML-KEM-768</code>.
+
+Hashing both ciphertexts and both public keys also makes <code>K</code> binding, assuming only that <code>H_seed</code> is collision resistant.
+Even an adversary that knows the decapsulation keys cannot make two different ciphertexts, or ciphertexts for two different public keys, decapsulate to the same <code>K</code> (LEAK-BIND-K-CT and LEAK-BIND-K-PK, [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.4.2.1 CFRG draft, §6.4.2.1]).
 
 HKE does not provide forward secrecy (compromise of <code>msk</code> exposes every <code>K</code> sent to it), sender authentication, deniability, or an explicit failure signal (see [[#decapsulation|Decapsulation]]).
 
@@ -212,6 +222,7 @@ These use <code>secp256k1</code> for keys and SHA-256 for hashing, so HKE keeps 
 With <code>secp256k1</code>, the classical part of HKE is the ECDH these protocols already perform, with the same point encodings and the same implementations, such as [https://github.com/bitcoin-core/secp256k1 <code>libsecp256k1</code>] and [https://github.com/BlockstreamResearch/secp256k1-zkp <code>secp256k1-zkp</code>].
 A wallet that adopts HKE needs no second curve.
 Every hash in HKE is a tagged hash, the domain-separated SHA-256 that BIP340 defines, [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] and [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP352] use, and <code>libsecp256k1</code> implements.
+<code>H_seed</code> serves as UG's <code>KDF</code>: its tag separates it from the other hashes, as for every tagged hash here, and <code>label</code> ends its input because UG's combiner ends with one.
 
 ===ML-KEM-768===
 
@@ -244,14 +255,12 @@ The range-proof code is unchanged, since it takes a 32-byte seed either way.
 
 ===BIP47 reusable payment codes===
 
-In [https://github.com/bitcoin/bips/blob/master/bip-0047.mediawiki BIP47], Alice sends Bob a one-time ''notification transaction'' carrying her payment code, blinded with a secret from an ECDH between a designated input's key and Bob's notification key.
-Both parties then derive every address of the relationship from the two payment codes, with no further on-chain announcement.
-A CRQC recovers the designated input's private key from its on-chain public key, unblinds Alice's payment code, and thereby derives every address the two parties will ever use.
+In [https://github.com/bitcoin/bips/blob/master/bip-0047.mediawiki BIP47], Alice sends Bob her payment code once, in a ''notification transaction'', and both then derive the address of each payment from an ECDH between keys of their two payment codes.
+Payment codes are meant to be published, so a CRQC that knows both codes derives every address of the relationship, whether or not the notification is protected.
 
-Deriving the blinding secret by HKE keeps Alice's payment code sealed, and with it, transitively, the per-payment derivation that has no room of its own for a ciphertext.
-This is the best cost profile of any application here: one ciphertext per counterparty protects every payment in the relationship.
-It needs a new payment-code version carrying <code>ek</code> (growing it from 80 bytes to about 1.3 KB) and room for <code>c</code> in the notification transaction.
-The existence of the relationship stays visible: an observer still sees that Alice notified Bob.
+HKE fits a new payment-code version in which Bob's payment code carries <code>ek</code> (about 1.3 KB instead of 80 bytes), the notification carries <code>c</code>, and each payment's secret is derived from <code>K</code> and a counter rather than from the payment codes.
+One ciphertext per counterparty then protects every payment of the relationship.
+Alice must store <code>K</code>, since she cannot recompute it from her seed, and an observer still sees that Alice notified Bob.
 
 ===Nostr===
 
