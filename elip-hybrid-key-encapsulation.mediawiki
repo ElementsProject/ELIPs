@@ -294,3 +294,9 @@ They cover:
 * '''Encapsulation failure:''' an invalid <code>B_bytes</code> (the same classes as <code>E_bytes</code>), an <code>ek</code> that fails <code>KEM.CheckEK</code> (a wrong <code>|ek|</code>, including valid <code>ML-KEM-512</code> and <code>ML-KEM-1024</code> keys, or a coefficient <code>>= q</code> at the first and last position of each of the three polynomials, which covers both 12-bit halves of a 3-byte group), an <code>e</code> outside <code>[1, n-1]</code> (including <code>n + 1</code>, which catches an implementation that reduces <code>e</code> modulo <code>n</code>), or a wrong <code>|m|</code>.
 
 No vector reaches the reduction modulo <code>n</code> or the <code>b = 0</code> failure in <code>expandDecapsulationKey</code>: each happens with probability at most about <code>2^-128</code>.
+
+==Acknowledgements==
+
+We thank Oleksandr Kurbatov and Jonas Nick for the valuable feedback and review.
+The authors used Anthropic's Claude models while preparing this proposal for editing and reviewing the document and for writing the PoC implementation.
+All AI-generated content was carefully verified by the authors.
