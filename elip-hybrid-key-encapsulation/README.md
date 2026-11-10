@@ -42,7 +42,7 @@ The reference implements only the HKE layer itself; both primitives come from ca
 | Spec | `hke.py` |
 |---|---|
 | `cbytes`, `int`, `lift` | `cbytes`, `int_`, `lift` (returns `None` on failure) |
-| `H_t`, `H_blind`, `H_kem-d`, `H_kem-z`, `H_ecdh`, `H_seed`, `label` | `H`, `H_blind`, `H_kem_d`, `H_kem_z`, `H_ecdh`, `H_seed`, `label` |
+| `H_t`, `H_blind`, `H_kem-d`, `H_kem-z`, `H_ecdh`, `H_seed` | `H`, `H_blind`, `H_kem_d`, `H_kem_z`, `H_ecdh`, `H_seed` |
 | `KEM.KeyGen_internal`, `KEM.Encaps_internal`, `KEM.Decaps`, `L_ek`, `L_c` | `KEM.*`, backed by `kyber-py` |
 | `KEM.CheckEK` | `KEM.CheckEK`, implemented directly from FIPS 203 §7.2 and checked against NIST ACVP |
 | `expandDecapsulationKey`, `KeyGen`, `Encaps`, `EncapsDerand`, `Decaps` | same names, same step order |

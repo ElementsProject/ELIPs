@@ -18,9 +18,9 @@
 ===Abstract===
 
 A cryptographically relevant quantum computer (CRQC) poses a threat to a large body of deployed cryptographic protocols.
-Particularly, it solves the Computational Diffie-Hellman (CDH) problem, so the protocols that use Elliptic Curve Diffie-Hellman (ECDH) key agreement are vulnerable.
-The retroactive CRQC attacks typically affect the privacy of users in such protocols.
-This document specifies '''HKE''', a hybrid key encapsulation that instantiates the UG framework of the CFRG draft [https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/12/ ''Hybrid PQ/T Key Encapsulation Mechanisms''] and derives a 32-byte secret <code>K</code> from two parts: an ECDH on <code>secp256k1</code> and a post-quantum key-encapsulation mechanism [https://csrc.nist.gov/pubs/fips/203/final <code>ML-KEM-768</code>], combined so that <code>K</code> remains pseudorandom even if either component is compromised.
+In particular, it solves the Computational Diffie-Hellman (CDH) problem, so the protocols that use Elliptic Curve Diffie-Hellman (ECDH) key agreement are vulnerable.
+Attacks on them are retroactive and typically affect the privacy of their users.
+This document specifies '''HKE''', a hybrid key encapsulation that instantiates the UG framework of the CFRG draft [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12 ''Hybrid PQ/T Key Encapsulation Mechanisms''] and derives a 32-byte shared secret <code>K</code> from two components: an ECDH on <code>secp256k1</code> and a post-quantum key-encapsulation mechanism [https://csrc.nist.gov/pubs/fips/203/final <code>ML-KEM-768</code>], combined so that <code>K</code> remains pseudorandom as long as one of the two components is unbroken.
 
 ===Copyright===
 
@@ -30,34 +30,38 @@ The vendored copy of secp256k1lab keeps its own MIT License.
 <span id="motivation"></span>
 ===Motivation===
 
-A large body of deployed protocols share the same pattern: a sender performs a one-shot ECDH to a recipient's long-term public <code>secp256k1</code> key, derives a secret from it, and publishes something that depends on that secret on-chain.
+A large body of deployed protocols share the same pattern: a sender performs a one-shot ECDH to a recipient's long-term public <code>secp256k1</code> key, derives a secret from it, and publishes data that depends on that secret.
 
-As CRQC breaks ECDH with Shor's algorithm, every such protocol is exposed to a '''harvest-now-decrypt-later''' attack: an adversary records the published material today and, once a CRQC exists, recovers the shared secret and everything derived from it.
+As a CRQC breaks ECDH with Shor's algorithm, every such protocol is exposed to a '''harvest-now-decrypt-later''' attack: an adversary records the published material today and, once a CRQC exists, recovers the shared secret and everything derived from it.
 The exposure is retroactive and irreversible.
 No key rotation, protocol upgrade, or later migration repairs data that has already been published.
-Hence, the confidentiality of such protocols is at permanent risk and the post-quantum upgrade is needed as soon as possible.
-One proposed remedy is a ''hybrid key encapsulation'': a secret is combined from two parts:
+Hence, the confidentiality of such protocols is at permanent risk and a post-quantum upgrade is needed as soon as possible.
+
+One proposed remedy is a ''hybrid key encapsulation'': a shared secret is combined from two components:
 
 * classical ECDH key exchange
 * post-quantum key encapsulation mechanism (PQ KEM, e.g. ML-KEM)
 
-If one of the two parts is compromised, the scheme remains secure, e.g. if advances in cryptanalysis of lattice-based constructions compromise ML-KEM, classical security will still be guaranteed by ECDH.
+If one of the two components is compromised, the scheme remains secure, e.g. if advances in cryptanalysis of lattice-based constructions compromise ML-KEM, classical security will still be guaranteed by ECDH.
 For this reason, messaging protocols facing the same exposure are actively moving to hybrid key encapsulation (e.g. Signal's [https://signal.org/docs/specifications/pqxdh/ PQXDH] and Apple's [https://security.apple.com/blog/imessage-pq3/ iMessage PQ3]).
-Another example is Bitcoin's encrypted peer-to-peer transport protocol [https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki BIP324], which uses <code>secp256k1</code> ECDH.
-Developers are actively discussing the hybrid replacement on the [https://groups.google.com/g/bitcoindev/c/n_5WuKVYqwI bitcoindev mailing list].
+For Bitcoin's encrypted peer-to-peer transport protocol [https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki BIP324], which uses <code>secp256k1</code> ECDH, a hybrid replacement is under discussion on the [https://groups.google.com/g/bitcoindev/c/n_5WuKVYqwI bitcoindev mailing list].
 
-One possible important application of HKE is the [https://blockstream.com/bitcoin17-final41.pdf Confidential Assets] protocol, currently deployed on the Liquid network: sender and recipient establish a shared secret via ECDH and use it to derive a seed for a witness-recoverable range proof, letting the recipient later recover the amount and blinders under that same secret.
-Because every range proof is published on-chain, an attacker equipped with a CRQC can retroactively break the ''confidentiality'' of every such output ever created.
+One possible important application of HKE is the [https://blockstream.com/bitcoin17-final41.pdf Confidential Assets] protocol, currently deployed on the Liquid network: sender and recipient establish a shared secret via ECDH and use it to derive a seed for a witness-recoverable range proof, letting the recipient later recover the amount and blinding factors under that same secret.
+Range proofs are published on-chain, so an attacker with a CRQC who has seen a recipient's address can later break the ''confidentiality'' of every output sent to it (see [[#confidential-assets|Confidential Assets]]).
 
 ==Description==
 
-HKE is an instance of '''UG''', the framework that the CFRG draft [https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/12/ ''Hybrid PQ/T Key Encapsulation Mechanisms''] (revision 12, §5.3) defines for combining a post-quantum KEM with a Diffie–Hellman group.
-HKE instantiates it with <code>ML-KEM-768</code>, <code>secp256k1</code> and tagged SHA-256 (see [[#rationale|Rationale]]).
+A recipient holds a 32-byte secret <code>msk</code> and publishes a public key <code>(B, ek)</code>: a <code>secp256k1</code> point and an <code>ML-KEM-768</code> encapsulation key.
+A sender who knows the public key produces a 32-byte shared secret <code>K</code> and a ciphertext <code>(E, c)</code>, made of an ephemeral point and an ML-KEM ciphertext.
+The recipient recomputes <code>K</code> from <code>(E, c)</code> with <code>msk</code>.
+<code>K</code> is one hash over both shared secrets, both ciphertexts and both public keys:
 
-UG's combiner hashes both shared secrets, both ciphertexts and both public keys.
-It is the combiner of [https://eprint.iacr.org/2018/024 Giacon, Heuer and Poettering] with the public keys added, and it has the shape that [https://csrc.nist.gov/pubs/sp/800/227/final NIST SP 800-227] (§4.6.3) recommends for combining KEMs.
-[https://eprint.iacr.org/2024/039 X-Wing], which pairs <code>X25519</code> with <code>ML-KEM-768</code>, uses the combiner of the draft's CG framework instead: it omits the <code>ML-KEM</code> ciphertext and encapsulation key, and in exchange relies on a further security property of <code>ML-KEM-768</code> (see [[#security|Security]]).
-HKE instead hashes them, which adds about 2.3 KB of SHA-256 input per encapsulation, but removes that dependency.
+<pre>K := H_seed(K_q || K_c || c || E || ek || B)</pre>
+
+where <code>K_c</code> comes from the ECDH between <code>E</code> and <code>B</code>, and <code>K_q</code> from ML-KEM.
+
+More generally, HKE is an instance of '''UG''', the framework that the CFRG draft [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12/ ''Hybrid PQ/T Key Encapsulation Mechanisms''] defines for combining a post-quantum KEM with a Diffie–Hellman group.
+HKE instantiates it with <code>ML-KEM-768</code>, <code>secp256k1</code> and tagged SHA-256 (see [[#rationale|Rationale]]).
 
 Both parts of the recipient's key are derived from one 32-byte secret <code>msk</code> with separately tagged hashes, so recovering the classical scalar from <code>B</code> with a CRQC does not reveal the ML-KEM decapsulation key.
 
@@ -65,16 +69,16 @@ Both parts of the recipient's key are derived from one 32-byte secret <code>msk<
 
 ===Notation===
 
-* The group is <code>secp256k1</code> ([https://www.secg.org/sec2-v2.pdf SEC2], §2.4.1), prime order <code>n</code>, generator <code>G</code>. <code>k*P</code> is scalar multiplication; <code>O</code> is the point at infinity.
+* The group is <code>secp256k1</code> ([https://www.secg.org/sec2-v2.pdf SEC2], §2.4.1): the points of an elliptic curve over the integers modulo the prime <code>p</code>, a group of prime order <code>n</code> with generator <code>G</code>. <code>k*P</code> is scalar multiplication; <code>O</code> is the point at infinity.
 * <code>cbytes(P)</code>: the 33-byte compressed SEC1 encoding of a point <code>P</code> ([https://www.secg.org/sec1-v2.pdf SEC1], §2.3.3).
 * <code>int(x)</code>: the integer with big-endian encoding <code>x</code>.
-* <code>lift(x)</code>: the point <code>P</code> with <code>cbytes(P) = x</code>. It fails unless <code>|x| = 33</code>, <code>x[0]</code> is <code>0x02</code> or <code>0x03</code>, <code>X = int(x[1:33]) < p</code> (the field size), and <code>X</code> is the x coordinate of a point on the curve. <code>X</code> MUST NOT be reduced modulo <code>p</code>. If these hold, <code>P</code> is the point with x coordinate <code>X</code> whose <code>Y</code> is even for <code>0x02</code> and odd for <code>0x03</code>. <code>lift</code> never returns <code>O</code>, and <code>cbytes(lift(x)) = x</code> whenever <code>lift</code> succeeds.
+* <code>|x|</code>: the length of the byte string <code>x</code> in bytes.
+* <code>x[i]</code>: the byte of <code>x</code> at index <code>i</code>, counting from 0; <code>x[i:j]</code>: the bytes of <code>x</code> at indices <code>i</code> to <code>j-1</code>.
+* <code>lift(x)</code>: the point <code>P</code> with <code>cbytes(P) = x</code>. It fails unless <code>|x| = 33</code>, <code>x[0]</code> is <code>0x02</code> or <code>0x03</code>, <code>X = int(x[1:33]) < p</code>, and <code>X</code> is the x coordinate of a point on the curve. <code>X</code> MUST NOT be reduced modulo <code>p</code>. If these hold, <code>P</code> is the point with x coordinate <code>X</code> whose <code>Y</code> is even for <code>0x02</code> and odd for <code>0x03</code>. <code>lift</code> never returns <code>O</code>, and <code>cbytes(lift(x)) = x</code> whenever <code>lift</code> succeeds.
 * '''Tagged hash''', as defined in [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki BIP340]. For an ASCII tag <code>t</code>, <code>H_t(x) = SHA256(SHA256(t) || SHA256(t) || x)</code>.
 * <code>||</code> is concatenation of byte strings.
-* <code>len(x)</code> or <code>|x|</code>: the bytelength of serialized object <code>x</code>.
-* <code>x $= S</code>: draw uniformly random <code>x</code> from the set <code>S</code>
-* <code>K</code>: this document's 32-byte combiner output, the secret HKE ultimately delivers to an application. <code>K_c</code>, <code>K_q</code>: the classical (ECDH) and post-quantum (KEM) shared secrets combined into <code>K</code>.
-* <code>label</code>: the 32-byte ASCII string <code>ELIP-HKE/v1/ML-KEM-768/secp256k1</code>, which ends the input to <code>H_seed</code> (as UG's <code>Label</code>).
+* <code>x $= S</code>: draw uniformly random <code>x</code> from the set <code>S</code>. A 256-bit string drawn from <code>{0,1}^256</code> is treated as a 32-byte string.
+* <code>K</code>: the 32-byte shared secret that HKE delivers to an application. <code>K_c</code>, <code>K_q</code>: the classical (ECDH) and post-quantum (ML-KEM) shared secrets that <code>H_seed</code> combines into <code>K</code>.
 
 This document uses the following tagged hash functions:
 
@@ -86,7 +90,7 @@ This document uses the following tagged hash functions:
 |-
 | <code>H_blind</code>
 | <code>ELIP-HKE/v1/blind</code>
-| classical blinding scalar
+| classical scalar <code>b</code>
 |-
 | <code>H_kem-d</code>
 | <code>ELIP-HKE/v1/kem-d</code>
@@ -98,22 +102,25 @@ This document uses the following tagged hash functions:
 |-
 | <code>H_ecdh</code>
 | <code>ELIP-HKE/v1/ecdh</code>
-| classical shared secret
+| classical shared secret <code>K_c</code>
 |-
 | <code>H_seed</code>
 | <code>ELIP-HKE/v1/seed/ML-KEM-768</code>
-| combiner output; the tag names the parameter set
+| shared secret <code>K</code>
 |}
 
-In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-5.3 UG], the seed is <code>msk</code>, <code>PRG(msk) = H_kem-d(msk) || H_kem-z(msk) || H_blind(msk)</code>, <code>RandomScalar(s) = int(s) mod n</code>, <code>ElementToSharedSecret(P) = H_ecdh(cbytes(P))</code>, <code>KDF = H_seed</code> and <code>Label = label</code>.
+This document specifies one parameter set, HKE v1, with <code>ML-KEM-768</code>.
+Another parameter set would replace <code>v1</code> in every tag, so that its keys and shared secrets are independent of those of HKE v1, even for the same <code>msk</code>.
+
+In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-5.3 UG], the seed is <code>msk</code>, <code>PRG(msk) = H_kem-d(msk) || H_kem-z(msk) || H_blind(msk)</code>, <code>RandomScalar(s) = int(s) mod n</code>, <code>ElementToSharedSecret(P) = H_ecdh(cbytes(P))</code>, <code>KDF = H_seed</code>, and <code>Label</code> is empty (see [[#secp256k1-and-sha-256|secp256k1 and SHA-256]]).
 
 ===KEM interface===
 
 HKE uses <code>ML-KEM-768</code>, the category-3 parameter set of [https://csrc.nist.gov/pubs/fips/203/final FIPS 203], through the functions below, written with the prefix <code>KEM</code>.
 Names follow FIPS 203, except that its shared secret key <code>K</code> is called <code>K_q</code> here, because <code>K</code> is the output of HKE.
 
-* <code>KEM.KeyGen_internal(d, z) -> (ek, dk)</code> is <code>ML-KEM.KeyGen_internal</code> (FIPS 203, Algorithm 16). It takes two 32-byte seeds, <code>d</code> for the key pair and the implicit-rejection value <code>z</code>, and returns the encapsulation key <code>ek</code> of <code>L_ek = 1184</code> bytes and the decapsulation key <code>dk</code> of 2400 bytes.
-* <code>KEM.Encaps_internal(ek, m) -> (K_q, c)</code> is <code>ML-KEM.Encaps_internal</code> (Algorithm 17). It takes <code>ek</code> and 32 bytes of randomness <code>m</code>, and returns the 32-byte shared secret key <code>K_q</code> and the ciphertext <code>c</code> of <code>L_c = 1088</code> bytes.
+* <code>KEM.KeyGen_internal(d, z) -> (ek, dk)</code> is <code>ML-KEM.KeyGen_internal</code> (FIPS 203, Algorithm 16). It takes two 32-byte seeds: <code>d</code>, from which the key pair is derived, and <code>z</code>, the implicit-rejection value. It returns the ML-KEM encapsulation key <code>ek</code> of <code>L_ek = 1184</code> bytes and the ML-KEM decapsulation key <code>dk</code> of 2400 bytes.
+* <code>KEM.Encaps_internal(ek, m) -> (K_q, c)</code> is <code>ML-KEM.Encaps_internal</code> (Algorithm 17). It takes <code>ek</code> and 32 bytes of randomness <code>m</code>, and returns the 32-byte shared secret key <code>K_q</code> and the ML-KEM ciphertext <code>c</code> of <code>L_c = 1088</code> bytes.
 * <code>KEM.Decaps(dk, c) -> K_q</code> is <code>ML-KEM.Decaps</code> (Algorithm 21). FIPS 203 requires its inputs to be checked (§7.3): [[#decapsulation|Decapsulation]] checks <code>|c| = L_c</code>, and <code>dk</code> passes the decapsulation key checks because <code>KEM.KeyGen_internal</code> computed it.
 * <code>KEM.CheckEK(ek) -> bool</code> is the encapsulation key check of FIPS 203 (§7.2), which has no function name there. It returns true iff <code>|ek| = L_ek</code> (type check) and every 12-bit coefficient decoded from the first <code>L_ek - 32</code> bytes of <code>ek</code> is less than <code>q = 3329</code> (modulus check).
 
@@ -132,64 +139,65 @@ KeyGen():
 
 A recipient first calls <code>KeyGen</code> to generate a key pair:
 
-* <code>msk</code>: the secret decapsulation key, which must be stored securely.
+* <code>msk</code> (master secret key): the decapsulation key, which the recipient keeps secret.
 * <code>(B_bytes, ek)</code>: the public key, which the recipient publishes (e.g. via their address); <code>B_bytes = cbytes(B)</code> is 33 bytes and <code>ek</code> is <code>L_ek</code> bytes.
 
 <code>KeyGen</code> draws <code>msk</code> uniformly at random to keep the description self-contained.
 In practice, wallets derive <code>msk</code> deterministically under the key derivation rules of the application, so that a wallet restored from its backup recomputes <code>msk</code> and recovers its outputs.
-This document does not fix that derivation, but the derivation MUST be a pseudorandom function, such as HMAC-SHA256, keyed with a secret that is used for nothing else and that an adversary with a CRQC cannot compute, and <code>msk</code> MUST NOT be used outside HKE; the [[#security|Security]] argument then holds unchanged.
-For example, a Liquid wallet with the master blinding key <code>mbk</code> of [https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77] can set <code>msk := HMAC-SHA256(H_t(mbk), scriptPubKey)</code> for a tag <code>t</code> of its own.
-Keying HMAC with <code>mbk</code> itself would not do: that gives the SLIP-77 blinding key of the scriptPubKey, whose public key appears in the wallet's confidential addresses.
+This document does not fix that derivation.
+The derivation MUST be a pseudorandom function, such as HMAC-SHA256, keyed with a secret that is used for nothing else and that an adversary with a CRQC cannot compute.
+<code>msk</code> MUST NOT be used outside HKE.
+Under these conditions the [[#security|Security]] argument holds unchanged.
+For example, a Liquid wallet with the master blinding key <code>mbk</code> according to [https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77] can set <code>msk := HMAC-SHA256(H_mbk(mbk), scriptPubKey)</code>, where <code>H_mbk</code> is the tagged hash with tag <code>ELIP-HKE/v1/mbk</code>.
+Keying HMAC with <code>mbk</code> itself would not do: that gives the SLIP-77 blinding key of the scriptPubKey, whose public key appears in the wallet's confidential addresses
 
 ===Encapsulation===
 
 Input: recipient public key <code>(B_bytes, ek)</code>, as byte strings.
-Output: encryption key <code>K</code> and ciphertext <code>(E_bytes, c)</code>.
+Output: shared secret <code>K</code> and ciphertext <code>(E_bytes, c)</code>.
 
 <pre>Encaps(B_bytes, ek):
     e $= [1, n-1]
     m $= {0,1}^256
-    Return EncapsDerand(B_bytes, ek, e, m).
+    Return EncapsDerand(B_bytes, ek, e, m)
 
 EncapsDerand(B_bytes, ek, e, m):
-    B := lift(B_bytes); fail if lift fails.
-    Fail if not KEM.CheckEK(ek).
-    Fail if not 1 <= e <= n-1.
-    Fail if |m| != 32.
+    B := lift(B_bytes); fail if lift fails
+    Fail if not KEM.CheckEK(ek)
+    Fail if not 1 <= e <= n-1
+    Fail if |m| != 32
     E := e*G
     E_bytes := cbytes(E)
     K_c := H_ecdh(cbytes(e*B))
     (K_q, c) := KEM.Encaps_internal(ek, m)
-    K := H_seed(K_q || K_c || c || E_bytes || ek || B_bytes || label)
-    Return (K, (E_bytes, c)).</pre>
+    K := H_seed(K_q || K_c || c || E_bytes || ek || B_bytes)
+    Return (K, (E_bytes, c))</pre>
 
-<code>lift</code> rejects <code>O</code>, any encoding other than the 33-byte compressed one, and <code>X >= p</code>, so every public key has exactly one accepted encoding.
-<code>Decaps</code> applies the same <code>lift</code> to <code>E_bytes</code>, so it hashes exactly the bytes that <code>Encaps</code> produced and no other encoding of <code>E</code> yields the same <code>K</code>.
+We give the version of <code>Encaps</code> which takes the control of the randomness generation to allow the generation of test vectors.
+Real implementations MUST instead use <code>Encaps</code> that computes <code>(K_q, c) := ML-KEM.Encaps(ek)</code>, which draws <code>m</code> itself.
 
-<code>EncapsDerand</code> is the deterministic core of <code>Encaps</code> and exists for test vectors.
-Implementations MUST use <code>Encaps</code>, drawing <code>e</code> and <code>m</code> fresh from a cryptographically secure source for every call.
-
-A sender publishes <code>E_bytes</code> and <code>c</code> for the recipient (e.g. somewhere on-chain) and uses <code>K</code> to encrypt data to the recipient (e.g. in Liquid it seeds the DRBG for witness recoverable range proofs).
+A sender publishes <code>E_bytes</code> and <code>c</code> for the recipient (e.g. in a transaction output) and uses <code>K</code> to encrypt data to the recipient (e.g. in Liquid it seeds the DRBG for witness-recoverable range proofs).
+An application that needs several keys from one encapsulation MUST derive them from <code>K</code> with domain separation, for example as <code>H_t(K)</code> with a different tag <code>t</code> for each key, rather than use <code>K</code> itself for more than one purpose.
 
 <span id="decapsulation"></span>
 ===Decapsulation===
 
 Input: ciphertext <code>(E_bytes, c)</code> and the 32-byte decapsulation key <code>msk</code>.
-Output: decryption key <code>K</code>.
+Output: shared secret <code>K</code>.
 
 <pre>Decaps((E_bytes, c), msk):
     (b, dk, B, ek) := expandDecapsulationKey(msk)
-    E := lift(E_bytes); fail if lift fails.
-    Fail if |c| != L_c.
+    E := lift(E_bytes); fail if lift fails
+    Fail if |c| != L_c
     K_c := H_ecdh(cbytes(b*E))
     K_q := KEM.Decaps(dk, c)
-    K := H_seed(K_q || K_c || c || cbytes(E) || ek || cbytes(B) || label)
-    Return K.</pre>
+    K := H_seed(K_q || K_c || c || E_bytes || ek || cbytes(B))
+    Return K</pre>
 
-Apart from the two format checks above, <code>Decaps</code> does not fail, except if <code>b = 0</code> in <code>expandDecapsulationKey</code>, which happens with probability <code>2^-255</code>.
-<code>KEM.Decaps</code> uses implicit rejection: if <code>c</code> was not produced for <code>ek</code>, it returns an unrelated pseudorandom <code>K_q</code>, so the resulting <code>K</code> is simply wrong.
-The recipient finds out only when the application tries to use <code>K</code> — in [[#confidential-assets|Confidential Assets]], the range-proof rewind fails.
-Applications MUST treat this as &quot;output not recovered&quot;, not as a protocol error.
+<code>Decaps</code> fails in three cases only: <code>lift(E_bytes)</code> fails, <code>|c| != L_c</code>, or <code>b = 0</code> in <code>expandDecapsulationKey</code>, which happens with probability <code>2^-255</code>.
+If <code>(E_bytes, c)</code> was not produced by <code>Encaps</code> for this public key, <code>Decaps</code> still returns a <code>K</code>, unrelated to the sender's: any change to <code>E_bytes</code> or <code>c</code> changes the input to <code>H_seed</code>, and <code>KEM.Decaps</code> uses implicit rejection, returning a pseudorandom <code>K_q</code> for a <code>c</code> not produced for <code>ek</code>.
+The recipient finds out only when the application tries to use <code>K</code>: in [[#confidential-assets|Confidential Assets]], the range-proof rewind fails.
+An application MUST treat a <code>K</code> that fails in use as a ciphertext not addressed to it, not as an error.
 
 <span id="security"></span>
 ==Security==
@@ -198,40 +206,57 @@ HKE is an instance of UG, so the IND-CCA analyses that the CFRG draft gives for 
 Informally, with the tagged hashes modeled as random oracles, <code>K</code> is indistinguishable from random if either of the following holds:
 
 # '''<code>ML-KEM-768</code> is IND-CCA secure.''' This covers quantum adversaries, with quantum access to the random oracles.
-# '''The strong Diffie–Hellman problem on <code>secp256k1</code> is hard.''' This protects <code>K</code> against classical adversaries if <code>ML-KEM-768</code> is broken: computing <code>K_c</code> requires <code>e*B</code> from <code>B</code> and <code>E</code>, and, as in X-Wing, the proof answers decapsulation queries with a strong Diffie–Hellman oracle.
+# '''The strong Diffie–Hellman problem on <code>secp256k1</code> is hard.''' This protects <code>K</code> against classical adversaries if <code>ML-KEM-768</code> is broken: computing <code>K_c</code> requires <code>e*B</code> from <code>B</code> and <code>E</code>. As in [https://eprint.iacr.org/2024/039 X-Wing], a hybrid of <code>X25519</code> and <code>ML-KEM-768</code>, the proof answers decapsulation queries with a strong Diffie–Hellman oracle.
 
-Condition 1 is the same for X-Wing, whose post-quantum proof also needs only IND-CCA security ([https://eprint.iacr.org/2024/039 X-Wing], Theorem 2).
-Condition 2 is where hashing <code>c</code> matters.
-X-Wing does not hash <code>c</code>, so its classical proof (Theorem 1) also needs <code>ML-KEM-768</code> to be ciphertext second-preimage resistant (C2PRI).
-Without that property, an adversary could find a ciphertext <code>c' != c*</code> that decapsulates to the same <code>K_q</code> as the challenge <code>(E*, c*)</code>, and query the decapsulation of <code>(E*, c')</code> to obtain the challenge key.
-In HKE, <code>c'</code> changes the input to <code>H_seed</code>, which the proof models as a random oracle, so that query yields an independent <code>K</code>, and condition 2 needs nothing from <code>ML-KEM-768</code>.
+[[#combiner|Combiner]] compares these conditions with those of X-Wing.
 
-Hashing both ciphertexts and both public keys also makes <code>K</code> binding, assuming only that <code>H_seed</code> is collision resistant.
-Even an adversary that knows the decapsulation keys cannot make two different ciphertexts, or ciphertexts for two different public keys, decapsulate to the same <code>K</code> (LEAK-BIND-K-CT and LEAK-BIND-K-PK, [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.4.2.1 CFRG draft, §6.4.2.1]).
+<code>H_seed</code> hashes the whole ciphertext and the whole public key, so <code>K</code> is also binding if <code>H_seed</code> is collision resistant: even an adversary that knows the decapsulation keys cannot make two different ciphertexts, or ciphertexts for two different public keys, decapsulate to the same <code>K</code>, since that would give two different <code>H_seed</code> inputs with the same output (LEAK-BIND-K-CT and LEAK-BIND-K-PK).
+The CFRG draft makes this argument for UG informally ([https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.4.2.1 §6.4.2.1]) and defers rigorous proofs to a forthcoming paper.
 
 HKE does not provide forward secrecy (compromise of <code>msk</code> exposes every <code>K</code> sent to it), sender authentication, deniability, or an explicit failure signal (see [[#decapsulation|Decapsulation]]).
+It also makes no claim that a ciphertext hides the public key it was made for (recipient anonymity).
+
+Implementations SHOULD perform every operation on secret values (<code>msk</code>, <code>b</code>, <code>dk</code>, <code>e</code>, <code>m</code>, <code>K_c</code>, <code>K_q</code> and <code>K</code>) in constant time, in particular <code>b*E</code> and <code>KEM.Decaps</code>, which <code>Decaps</code> runs on ciphertexts that anyone can send to the recipient.
+The reference implementation is not constant time.
 
 <span id="rationale"></span>
 ==Rationale==
 
-HKE is designed for Bitcoin-based chains, such as Bitcoin and Liquid, and for protocols that use the same primitives, such as Nostr.
+HKE is designed for Bitcoin, Liquid, and protocols that use the same primitives, such as Nostr.
 These use <code>secp256k1</code> for keys and SHA-256 for hashing, so HKE keeps both and adds only what they lack, a post-quantum KEM.
 
+<span id="combiner"></span>
+===Combiner===
+
+HKE uses UG's combiner rather than X-Wing's (the CFRG draft's CG) to avoid an extra assumption on <code>ML-KEM-768</code>.
+[https://eprint.iacr.org/2024/039 X-Wing] does not hash the ML-KEM ciphertext <code>c</code>, so its classical security (Theorem 1) also needs <code>ML-KEM-768</code> to be ciphertext second-preimage resistant (C2PRI).
+UG hashes <code>c</code>, so the classical condition of [[#security|Security]] needs nothing from <code>ML-KEM-768</code>.
+The price is about 2.3 KB of SHA-256 input per encapsulation, for <code>c</code> and <code>ek</code>.
+
+[https://csrc.nist.gov/pubs/sp/800/227/final NIST SP 800-227] (§4.6.3) gives this form of combiner as its example of one that preserves IND-CCA security, citing [https://eprint.iacr.org/2018/024 Giacon, Heuer and Poettering].
+<code>H_ecdh</code> turns the point <code>e*B</code> into the 32-byte <code>K_c</code> by hashing its compressed encoding, as the ECDH module of <code>libsecp256k1</code> and BIP352 already do.
+
+<span id="secp256k1-and-sha-256"></span>
 ===secp256k1 and SHA-256===
 
 With <code>secp256k1</code>, the classical part of HKE is the ECDH these protocols already perform, with the same point encodings and the same implementations, such as [https://github.com/bitcoin-core/secp256k1 <code>libsecp256k1</code>] and [https://github.com/BlockstreamResearch/secp256k1-zkp <code>secp256k1-zkp</code>].
 A wallet that adopts HKE needs no second curve.
 Every hash in HKE is a tagged hash, the domain-separated SHA-256 that BIP340 defines, [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] and [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP352] use, and <code>libsecp256k1</code> implements.
-<code>H_seed</code> serves as UG's <code>KDF</code>: its tag separates it from the other hashes, as for every tagged hash here, and <code>label</code> ends its input because UG's combiner ends with one.
+
+<code>H_seed</code> serves as UG's <code>KDF</code>, which the draft requires to be indifferentiable from a random oracle, even to a quantum attacker (§6.1.5).
+SHA-256 does not meet this for arbitrary inputs, because of length extension ([https://doi.org/10.1007/11535218_26 Coron et al.]).
+Each tagged hash in HKE, however, is applied only to inputs of one length (2402 bytes for <code>H_seed</code>), and inputs of one length are prefix-free.
+On prefix-free inputs, Merkle–Damgård is indifferentiable from a random oracle if its compression function is ideal ([https://doi.org/10.1007/11535218_26 Coron et al.]; [https://eprint.iacr.org/2018/276 Zhandry] against quantum attackers).
+In the draft, UG's combiner ends with a label that keeps the KDFs of different instantiations apart (§6.5.1); in HKE, the tag of <code>H_seed</code> already does this, so the label is empty.
 
 ===ML-KEM-768===
 
 The encapsulation key <code>ek</code> is part of the recipient's public key, and a ciphertext <code>c</code> is published with every encapsulation, so their sizes are the main criterion for choosing the KEM.
 <code>ML-KEM</code> ([https://csrc.nist.gov/pubs/fips/203/final FIPS 203]) has smaller keys and ciphertexts than [https://pqc-hqc.org/doc/hqc_specifications_2025_08_22.pdf HQC], the only other KEM [https://csrc.nist.gov/pubs/ir/8545/final NIST has selected], which at category 3 has a 4514-byte <code>ek</code> and an 8978-byte <code>c</code>.
-[https://eprint.iacr.org/2018/383 CSIDH], the main alternative outside NIST's selection, needs public values of about 1 KB at category 3 ([https://eprint.iacr.org/2020/1520 SQALE]), close to the 1184-byte <code>ek</code> and 1088-byte <code>c</code> of <code>ML-KEM-768</code>, and its group action is orders of magnitude slower.
+[https://eprint.iacr.org/2018/383 CSIDH], an isogeny-based key exchange with 64-byte public keys at its original 512-bit parameters, needs public values of about 1 KB at category 3 ([https://eprint.iacr.org/2020/1520 SQALE]), close to the 1184-byte <code>ek</code> and 1088-byte <code>c</code> of <code>ML-KEM-768</code>, and its group action is orders of magnitude slower.
 
 HKE uses <code>ML-KEM-768</code> (category 3), which FIPS 203 (§8) recommends as the default parameter set because it &quot;provides a large security margin at a reasonable performance cost&quot;.
-X-Wing, which targets category 1, also uses <code>ML-KEM-768</code> rather than <code>ML-KEM-512</code>, as a hedge against future cryptanalysis ([https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/ X-Wing draft]).
+X-Wing, which targets category 1, also uses <code>ML-KEM-768</code> rather than <code>ML-KEM-512</code>, as a hedge against future cryptanalysis ([https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-11#section-1.2 X-Wing draft], §1.2).
 The margin matters for HKE because a ciphertext, once published, stays exposed to any later attack ([[#motivation|Motivation]]).
 <code>ML-KEM-1024</code> (category 5) would add 384 bytes to <code>ek</code> and 480 bytes to every <code>c</code>.
 
@@ -242,13 +267,13 @@ HKE fits a protocol when the following conditions hold.
 # '''The protocol already uses <code>secp256k1</code> for its classical key exchange.''' If not, use X-Wing directly; HKE exists to reuse the curve and key infrastructure that is already deployed, not to introduce a second curve.
 # '''The exchange is one-shot and non-interactive.''' If the parties can complete a round trip, use a hybrid handshake with forward secrecy instead.
 # '''The adversary can store the published data until a CRQC exists.''' Harvest-now-decrypt-later only works if the attacker keeps the transcript, so HKE helps more the more public and long-lived that data is. On-chain data is public and permanent, making HKE the ideal choice for replacing the original protocol.
-# '''There is somewhere to put ~1 KB, and paying for it is affordable at the protocol's natural frequency.''' A KEM ciphertext has no second use in the protocol that carries it, so it is pure overhead. Whether that overhead is acceptable depends far more on how ''often'' it is paid than on its size.
+# '''There is somewhere to put ~1.2 KB per public key and ~1.1 KB per encapsulation, and paying for it is affordable at the protocol's natural frequency.''' A KEM ciphertext has no second use in the protocol that carries it, so it is pure overhead. Whether that overhead is acceptable depends far more on how ''often'' it is paid than on its size.
 
 <span id="confidential-assets"></span>
 ===Confidential Assets===
 
 Every confidential output on Liquid ([https://blockstream.com/bitcoin17-final41.pdf Confidential Assets]) carries an ephemeral public key <code>E</code> and derives its range-proof seed from <code>ECDH(e, B)</code>, where <code>B</code> is the recipient's long-term blinding key.
-Both <code>E</code> and <code>B</code> are public, so a CRQC recovers the seed of any recorded output and, by rewinding its range proof, the amount, the asset and both blinders: the protocol is exposed to ''harvest-now-decrypt-later''.
+<code>E</code> is on chain and <code>B</code> is in the recipient's address, so an attacker with a CRQC who has seen the address recovers the seed of every recorded output sent to that address and, by rewinding its range proof, the amount, the asset and both blinding factors: the protocol is exposed to harvest-now-decrypt-later attacks.
 
 Replacing <code>ECDH(e, B)</code> with HKE and using its shared secret <code>K</code> as the range-proof seed requires the recipient's address to carry the ML-KEM encapsulation key <code>ek</code> alongside <code>B</code>, and each confidential output to carry the ciphertext <code>c</code> alongside <code>E</code>.
 The range-proof code is unchanged, since it takes a 32-byte seed either way.
@@ -264,16 +289,17 @@ Alice must store <code>K</code>, since she cannot recompute it from her seed, an
 
 ===Nostr===
 
-In [https://github.com/nostr-protocol/nips/blob/master/44.md NIP-44], encrypted direct messages derive a conversation key from a static-static ECDH on <code>secp256k1</code> and publish the ciphertext to relays, which retain it indefinitely.
+In [https://github.com/nostr-protocol/nips/blob/master/44.md NIP-44], encrypted direct messages derive a conversation key from a static-static ECDH on <code>secp256k1</code> and publish the ciphertext to relays, which may keep it indefinitely.
 The specification already records the gap: ''&quot;No post-quantum security: a powerful quantum computer would be able to decrypt the messages.&quot;''
-There is no carrier problem, since an event has no practical size limit, which makes this the least constrained application discussed here.
-One adaptation is needed: NIP-44's conversation key is symmetric, satisfying <code>conv(a, B) == conv(b, A)</code>, and a KEM breaks that symmetry because only the recipient holds <code>dk</code>.
-Either the sender retains <code>K_q</code>, or each party encapsulates to the other.
+Size is no obstacle, since relays typically accept events far larger than 1 KB, which makes this the least constrained application discussed here.
+One adaptation is needed: NIP-44's conversation key is symmetric, satisfying <code>conv(a, B) == conv(b, A)</code>, and a KEM breaks that symmetry because only the recipient holds <code>msk</code>.
+Either the sender retains <code>K</code>, or each party encapsulates to the other.
 
 ===Encryption to a known public key===
 
-Wallet backups, PSET blobs, and output descriptors are routinely sealed to a <code>secp256k1</code> key the sender already holds.
-No protocol constrains the size or the frequency, so HKE applies directly and needs nothing further specified here.
+Wallet backups, PSETs and output descriptors can be encrypted to a public key the sender already holds.
+With HKE, that key is the recipient's HKE public key <code>(B_bytes, ek)</code>, not a <code>secp256k1</code> key alone.
+No protocol constrains the size or the frequency of such messages, so HKE applies directly, with <code>K</code> as the key of a symmetric cipher.
 
 ==Backwards Compatibility==
 
@@ -288,10 +314,21 @@ Each vector lists its inputs under <code>given</code> and the values an implemen
 They cover:
 
 * '''Valid:''' <code>msk</code>, <code>e</code> and <code>m</code> as inputs; <code>b</code>, <code>B</code>, <code>ek</code>, <code>dk</code>, <code>E_bytes</code>, <code>c</code>, <code>K_c</code>, <code>K_q</code> and <code>K</code> as outputs. They include points <code>B</code>, <code>E</code> and <code>e*B</code> whose x coordinate starts with a zero byte, which catch an x coordinate encoded in fewer than 32 bytes. They also include a <code>K_c</code> and a <code>K_q</code> that start with a zero byte, which catch an implementation that does not handle them as fixed 32-byte strings.
-* '''Valid encapsulation:''' <code>B_bytes</code>, <code>ek</code>, <code>e</code> and <code>m</code> as inputs; <code>E_bytes</code>, <code>c</code>, <code>K_c</code>, <code>K_q</code> and <code>K</code> as outputs, for an <code>ek</code> that <code>KeyGen</code> does not produce but <code>KEM.CheckEK</code> accepts: each 3-byte group packs <code>q - 1</code> next to <code>q - 2</code>, so that a decoder that reads a bit from the wrong place sees a coefficient <code>>= q</code>, and the last 32 bytes are <code>0xff</code>.
+* '''Valid encapsulation:''' <code>B_bytes</code>, <code>ek</code>, <code>e</code> and <code>m</code> as inputs; <code>E_bytes</code>, <code>c</code>, <code>K_c</code>, <code>K_q</code> and <code>K</code> as outputs, for an <code>ek</code> that <code>KeyGen</code> does not produce but <code>KEM.CheckEK</code> accepts. In that <code>ek</code>:
+** each 3-byte group packs <code>q - 1</code> next to <code>q - 2</code>, so that a decoder that reads a bit from the wrong place sees a coefficient <code>>= q</code>;
+** the last 32 bytes are <code>0xff</code>.
 * '''Implicit rejection:''' ciphertexts that decapsulate without error to a <code>K</code> different from the encapsulated one, with that <code>K</code> and its <code>K_c</code> and <code>K_q</code> given.
-* '''Decapsulation failure:''' an invalid <code>E_bytes</code> or a wrong <code>|c|</code>. The invalid <code>E_bytes</code> include the 65-byte uncompressed and hybrid encodings, which a general SEC1 parser such as <code>secp256k1_ec_pubkey_parse</code> accepts, the 32-byte x-only encoding of BIP340, 33 zero bytes, which BIP327 decodes as the point at infinity, and <code>X >= p</code> where <code>X - p</code> is a valid x coordinate, which catches an implementation that reduces <code>X</code> modulo <code>p</code>.
-* '''Encapsulation failure:''' an invalid <code>B_bytes</code> (the same classes as <code>E_bytes</code>), an <code>ek</code> that fails <code>KEM.CheckEK</code> (a wrong <code>|ek|</code>, including valid <code>ML-KEM-512</code> and <code>ML-KEM-1024</code> keys, or a coefficient <code>>= q</code> at the first and last position of each of the three polynomials, which covers both 12-bit halves of a 3-byte group), an <code>e</code> outside <code>[1, n-1]</code> (including <code>n + 1</code>, which catches an implementation that reduces <code>e</code> modulo <code>n</code>), or a wrong <code>|m|</code>.
+* '''Decapsulation failure:''' an invalid <code>E_bytes</code> or a wrong <code>|c|</code>. The invalid <code>E_bytes</code> include:
+** the 65-byte uncompressed and hybrid encodings, which a general SEC1 parser such as <code>secp256k1_ec_pubkey_parse</code> accepts;
+** the 32-byte x-only encoding of BIP340;
+** 33 zero bytes, which BIP327 decodes as the point at infinity;
+** <code>X >= p</code> where <code>X - p</code> is a valid x coordinate, which catches an implementation that reduces <code>X</code> modulo <code>p</code>.
+* '''Encapsulation failure:''' one of the following inputs is invalid:
+** <code>B_bytes</code>, with the same classes as <code>E_bytes</code>;
+** <code>ek</code> with a wrong <code>|ek|</code>, including valid <code>ML-KEM-512</code> and <code>ML-KEM-1024</code> keys;
+** <code>ek</code> with a coefficient <code>>= q</code> at the first and last position of each of the three polynomials, which covers both 12-bit halves of a 3-byte group;
+** <code>e</code> outside <code>[1, n-1]</code>, including <code>n + 1</code>, which catches an implementation that reduces <code>e</code> modulo <code>n</code>;
+** <code>m</code> with a wrong <code>|m|</code>.
 
 No vector reaches the reduction modulo <code>n</code> or the <code>b = 0</code> failure in <code>expandDecapsulationKey</code>: each happens with probability at most about <code>2^-128</code>.
 

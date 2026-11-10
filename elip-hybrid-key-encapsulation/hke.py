@@ -87,9 +87,6 @@ def H_seed(x: bytes) -> bytes:
     return H("ELIP-HKE/v1/seed/ML-KEM-768", x)
 
 
-label = b"ELIP-HKE/v1/ML-KEM-768/secp256k1"
-
-
 # --- KEM interface ----------------------------------------------------------
 
 
@@ -183,7 +180,7 @@ def EncapsDerand(B_bytes: bytes, ek: bytes, e: int, m: bytes):
     E_bytes = cbytes(E)
     K_c = H_ecdh(cbytes(e * B))
     (K_q, c) = KEM.Encaps_internal(ek, m)
-    K = H_seed(K_q + K_c + c + E_bytes + ek + B_bytes + label)
+    K = H_seed(K_q + K_c + c + E_bytes + ek + B_bytes)
     return (K, (E_bytes, c))
 
 
@@ -200,5 +197,5 @@ def Decaps(ct, msk: bytes) -> bytes:
         raise HKEFailure("|c| != L_c")
     K_c = H_ecdh(cbytes(b * E))
     K_q = KEM.Decaps(dk, c)
-    K = H_seed(K_q + K_c + c + cbytes(E) + ek + cbytes(B) + label)
+    K = H_seed(K_q + K_c + c + E_bytes + ek + cbytes(B))
     return K
