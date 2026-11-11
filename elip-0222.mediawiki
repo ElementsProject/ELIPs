@@ -40,7 +40,7 @@ Hence, the confidentiality of such protocols is at permanent risk and a post-qua
 One proposed remedy is a ''hybrid key encapsulation'': a shared secret is combined from two components:
 
 * classical ECDH key exchange
-* post-quantum key encapsulation mechanism (PQ KEM, e.g. ML-KEM)
+* post-quantum key encapsulation mechanism (post-quantum KEM, e.g. ML-KEM)
 
 If one of the two components is compromised, the scheme remains secure, e.g. if advances in cryptanalysis of lattice-based constructions compromise ML-KEM, classical security will still be guaranteed by ECDH.
 For this reason, messaging protocols facing the same exposure are actively moving to hybrid key encapsulation (e.g. Signal's [https://signal.org/docs/specifications/pqxdh/ PQXDH] and Apple's [https://security.apple.com/blog/imessage-pq3/ iMessage PQ3]).
@@ -116,13 +116,13 @@ In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-ke
 
 ===KEM interface===
 
-HKE uses <code>ML-KEM-768</code>, the category-3 parameter set of [https://csrc.nist.gov/pubs/fips/203/final FIPS 203], through the functions below, written with the prefix <code>KEM</code>.
-Names follow FIPS 203, except that its shared secret key <code>K</code> is called <code>K_q</code> here, because <code>K</code> is the output of HKE.
+HKE v1 instantiates post-quantum KEM with <code>ML-KEM-768</code>, the category-3 parameter set of [https://csrc.nist.gov/pubs/fips/203/final FIPS 203].
+More specifically, HKE's post-quantum <code>KEM</code> instantiation is defined as follows (algorithms and paragraph numbers refer to FIPS 203):
 
-* <code>KEM.KeyGen_internal(d, z) -> (ek, dk)</code> is <code>ML-KEM.KeyGen_internal</code> (FIPS 203, Algorithm 16). It takes two 32-byte seeds: <code>d</code>, from which the key pair is derived, and <code>z</code>, the implicit-rejection value. It returns the ML-KEM encapsulation key <code>ek</code> of <code>L_ek = 1184</code> bytes and the ML-KEM decapsulation key <code>dk</code> of 2400 bytes.
-* <code>KEM.Encaps_internal(ek, m) -> (K_q, c)</code> is <code>ML-KEM.Encaps_internal</code> (Algorithm 17). It takes <code>ek</code> and 32 bytes of randomness <code>m</code>, and returns the 32-byte shared secret key <code>K_q</code> and the ML-KEM ciphertext <code>c</code> of <code>L_c = 1088</code> bytes.
-* <code>KEM.Decaps(dk, c) -> K_q</code> is <code>ML-KEM.Decaps</code> (Algorithm 21). FIPS 203 requires its inputs to be checked (§7.3): [[#decapsulation|Decapsulation]] checks <code>|c| = L_c</code>, and <code>dk</code> passes the decapsulation key checks because <code>KEM.KeyGen_internal</code> computed it.
-* <code>KEM.CheckEK(ek) -> bool</code> is the encapsulation key check of FIPS 203 (§7.2), which has no function name there. It returns true iff <code>|ek| = L_ek</code> (type check) and every 12-bit coefficient decoded from the first <code>L_ek - 32</code> bytes of <code>ek</code> is less than <code>q = 3329</code> (modulus check).
+* <code>KEM.KeyGen_internal(d, z) -> (ek, dk)</code> is <code>ML-KEM.KeyGen_internal</code> (Algorithm 16). From the 32-byte seeds <code>d</code> and <code>z</code>, it computes the encapsulation key <code>ek</code> of <code>L_ek = 1184</code> bytes and the decapsulation key <code>dk</code>.
+* <code>KEM.Encaps(ek) -> (K_q, c)</code> is <code>ML-KEM.Encaps</code> (Algorithm 20), and <code>KEM.Encaps_internal(ek, m) -> (K_q, c)</code> is <code>ML-KEM.Encaps_internal</code> (Algorithm 17), which takes the 32 bytes of randomness <code>m</code> as input instead of drawing them. Both return the 32-byte shared secret <code>K_q</code> and the ciphertext <code>c</code> of <code>L_c = 1088</code> bytes.
+* <code>KEM.Decaps(dk, c) -> K_q</code> is <code>ML-KEM.Decaps</code> (Algorithm 21).
+* <code>KEM.CheckEK(ek) -> bool</code> is the encapsulation key check (§7.2). It returns true iff <code>|ek| = L_ek</code> and every 12-bit coefficient decoded from the first <code>L_ek - 32</code> bytes of <code>ek</code> is less than <code>q = 3329</code>.
 
 ===Key generation===
 
@@ -149,7 +149,7 @@ The derivation MUST be a pseudorandom function, such as HMAC-SHA256, keyed with 
 <code>msk</code> MUST NOT be used outside HKE.
 Under these conditions the [[#security|Security]] argument holds unchanged.
 For example, a Liquid wallet with the master blinding key <code>mbk</code> according to [https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77] can set <code>msk := HMAC-SHA256(H_mbk(mbk), scriptPubKey)</code>, where <code>H_mbk</code> is the tagged hash with tag <code>ELIP-HKE/v1/mbk</code>.
-Keying HMAC with <code>mbk</code> itself would not do: that gives the SLIP-77 blinding key of the scriptPubKey, whose public key appears in the wallet's confidential addresses
+Keying HMAC with <code>mbk</code> itself would not do: that gives the SLIP-77 blinding key of the scriptPubKey, whose public key appears in the wallet's confidential addresses.
 
 ===Encapsulation===
 
@@ -174,7 +174,7 @@ EncapsDerand(B_bytes, ek, e, m):
     Return (K, (E_bytes, c))</pre>
 
 We give the version of <code>Encaps</code> which takes the control of the randomness generation to allow the generation of test vectors.
-Real implementations MUST instead use <code>Encaps</code> that computes <code>(K_q, c) := ML-KEM.Encaps(ek)</code>, which draws <code>m</code> itself.
+Real implementations MUST instead use <code>Encaps</code> that computes <code>(K_q, c) := KEM.Encaps(ek)</code>, which draws <code>m</code> itself.
 
 A sender publishes <code>E_bytes</code> and <code>c</code> for the recipient (e.g. in a transaction output) and uses <code>K</code> to encrypt data to the recipient (e.g. in Liquid it seeds the DRBG for witness-recoverable range proofs).
 An application that needs several keys from one encapsulation MUST derive them from <code>K</code> with domain separation, for example as <code>H_t(K)</code> with a different tag <code>t</code> for each key, rather than use <code>K</code> itself for more than one purpose.

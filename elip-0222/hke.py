@@ -103,6 +103,11 @@ class KEM:
         return _ML_KEM_768._keygen_internal(d, z)
 
     @staticmethod
+    def Encaps(ek: bytes):
+        """`Encaps(ek) -> (K_q, c)` (FIPS 203, Algorithm 20)."""
+        return _ML_KEM_768.encaps(ek)
+
+    @staticmethod
     def Encaps_internal(ek: bytes, m: bytes):
         """`Encaps_internal(ek, m) -> (K_q, c)` (FIPS 203, Algorithm 17)."""
         return _ML_KEM_768._encaps_internal(ek, m)
