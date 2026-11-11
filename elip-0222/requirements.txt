@@ -1,0 +1,2 @@
+kyber-py==1.2.0
+pytest>=8
