@@ -46,7 +46,11 @@ If one of the two components is compromised, the scheme remains secure, e.g. if 
 For this reason, messaging protocols facing the same exposure are actively moving to hybrid key encapsulation (e.g. Signal's [https://signal.org/docs/specifications/pqxdh/ PQXDH] and Apple's [https://security.apple.com/blog/imessage-pq3/ iMessage PQ3]).
 For Bitcoin's encrypted peer-to-peer transport protocol [https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki BIP324], which uses <code>secp256k1</code> ECDH, a hybrid replacement is under discussion on the [https://groups.google.com/g/bitcoindev/c/n_5WuKVYqwI bitcoindev mailing list].
 
-One possible important application of HKE is the [https://blockstream.com/bitcoin17-final41.pdf Confidential Assets] protocol, currently deployed on the Liquid network: sender and recipient establish a shared secret via ECDH and use it to derive a seed for a witness-recoverable range proof, letting the recipient later recover the amount and blinding factors under that same secret.
+More formally, we require HKE to have the chosen ciphertext indistinguishability (IND-CCA) security property against both classical and quantum adversaries.
+That is, no efficient adversary can distinguish the key <code>K</code> of a ciphertext produced by an honest sender from a random 32-byte string, even if it can have the recipient decapsulate any other ciphertext of its choice.
+We do not require any other security properties from HKE, such as deniability, recipient anonymity, sender authentication or forward secrecy.
+
+The important application of HKE is the [https://blockstream.com/bitcoin17-final41.pdf Confidential Assets] protocol, currently deployed on the Liquid network: sender and recipient establish a shared secret via ECDH and use it to derive a seed for a witness-recoverable range proof, letting the recipient later recover the amount and blinding factors under that same secret.
 Range proofs are published on-chain, so an attacker with a CRQC who has seen a recipient's address can later break the ''confidentiality'' of every output sent to it (see [[#confidential-assets|Confidential Assets]]).
 
 ==Description==
@@ -112,7 +116,7 @@ This document uses the following tagged hash functions:
 This document specifies one parameter set, HKE v1, with <code>ML-KEM-768</code>.
 Another parameter set would replace <code>v1</code> in every tag, so that its keys and shared secrets are independent of those of HKE v1, even for the same <code>msk</code>.
 
-In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-5.3 UG], the seed is <code>msk</code>, <code>PRG(msk) = H_kem-d(msk) || H_kem-z(msk) || H_blind(msk)</code>, <code>RandomScalar(s) = int(s) mod n</code>, <code>ElementToSharedSecret(P) = H_ecdh(cbytes(P))</code>, <code>KDF = H_seed</code>, and <code>Label</code> is empty (see [[#secp256k1-and-sha-256|secp256k1 and SHA-256]]).
+In the terms of [https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-5.3 UG], the seed is <code>msk</code>, <code>PRG(msk) = H_kem-d(msk) || H_kem-z(msk) || H_blind(msk)</code>, <code>RandomScalar(s) = int(s) mod n</code>, <code>ElementToSharedSecret(P) = H_ecdh(cbytes(P))</code>, <code>KDF = H_seed</code>, and <code>Label</code> is empty (see [[#why-ug-combiner-instantiated-with-tagged-sha-256|Rationale]]).
 
 ===KEM interface===
 
@@ -208,7 +212,7 @@ Informally, with the tagged hashes modeled as random oracles, <code>K</code> is 
 # '''<code>ML-KEM-768</code> is IND-CCA secure.''' This covers quantum adversaries, with quantum access to the random oracles.
 # '''The strong Diffie–Hellman problem on <code>secp256k1</code> is hard.''' This protects <code>K</code> against classical adversaries if <code>ML-KEM-768</code> is broken: computing <code>K_c</code> requires <code>e*B</code> from <code>B</code> and <code>E</code>. As in [https://eprint.iacr.org/2024/039 X-Wing], a hybrid of <code>X25519</code> and <code>ML-KEM-768</code>, the proof answers decapsulation queries with a strong Diffie–Hellman oracle.
 
-[[#combiner|Combiner]] compares these conditions with those of X-Wing.
+[[#why-ug-combiner-instantiated-with-tagged-sha-256|Rationale]] compares these conditions with those of X-Wing.
 
 <code>H_seed</code> hashes the whole ciphertext and the whole public key, so <code>K</code> is also binding if <code>H_seed</code> is collision resistant: even an adversary that knows the decapsulation keys cannot make two different ciphertexts, or ciphertexts for two different public keys, decapsulate to the same <code>K</code>, since that would give two different <code>H_seed</code> inputs with the same output (LEAK-BIND-K-CT and LEAK-BIND-K-PK).
 The CFRG draft makes this argument for UG informally ([https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.4.2.1 §6.4.2.1]) and defers rigorous proofs to a forthcoming paper.
@@ -222,11 +226,15 @@ The reference implementation is not constant time.
 <span id="rationale"></span>
 ==Rationale==
 
-HKE is designed for Bitcoin, Liquid, and protocols that use the same primitives, such as Nostr.
-These use <code>secp256k1</code> for keys and SHA-256 for hashing, so HKE keeps both and adds only what they lack, a post-quantum KEM.
+===Why secp256k1?===
 
-<span id="combiner"></span>
-===Combiner===
+HKE is designed for Bitcoin, Liquid, and protocols that use the same primitives, such as Nostr.
+These protocols use <code>secp256k1</code> for keys, so the classical part of HKE is the ECDH they already perform, with the same point encodings and the same implementations, such as [https://github.com/bitcoin-core/secp256k1 <code>libsecp256k1</code>] and [https://github.com/BlockstreamResearch/secp256k1-zkp <code>secp256k1-zkp</code>].
+<code>H_ecdh</code> turns the point <code>e*B</code> into the 32-byte <code>K_c</code> by hashing its compressed encoding, as the ECDH module of <code>libsecp256k1</code> and [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP352] already do.
+A wallet that adopts HKE needs no second curve.
+
+<span id="why-ug-combiner-instantiated-with-tagged-sha-256"></span>
+===Why UG Combiner instantiated with tagged SHA-256?===
 
 HKE uses UG's combiner rather than X-Wing's (the CFRG draft's CG) to avoid an extra assumption on <code>ML-KEM-768</code>.
 [https://eprint.iacr.org/2024/039 X-Wing] does not hash the ML-KEM ciphertext <code>c</code>, so its classical security (Theorem 1) also needs <code>ML-KEM-768</code> to be ciphertext second-preimage resistant (C2PRI).
@@ -234,26 +242,20 @@ UG hashes <code>c</code>, so the classical condition of [[#security|Security]] n
 The price is about 2.3 KB of SHA-256 input per encapsulation, for <code>c</code> and <code>ek</code>.
 
 [https://csrc.nist.gov/pubs/sp/800/227/final NIST SP 800-227] (§4.6.3) gives this form of combiner as its example of one that preserves IND-CCA security, citing [https://eprint.iacr.org/2018/024 Giacon, Heuer and Poettering].
-<code>H_ecdh</code> turns the point <code>e*B</code> into the 32-byte <code>K_c</code> by hashing its compressed encoding, as the ECDH module of <code>libsecp256k1</code> and BIP352 already do.
 
-<span id="secp256k1-and-sha-256"></span>
-===secp256k1 and SHA-256===
+HKE instantiates UG's <code>PRG</code> and <code>KDF</code>, and the group's <code>ElementToSharedSecret</code>, with tagged SHA-256 of BIP340, which is already implemented by <code>libsecp256k1</code>.
 
-With <code>secp256k1</code>, the classical part of HKE is the ECDH these protocols already perform, with the same point encodings and the same implementations, such as [https://github.com/bitcoin-core/secp256k1 <code>libsecp256k1</code>] and [https://github.com/BlockstreamResearch/secp256k1-zkp <code>secp256k1-zkp</code>].
-A wallet that adopts HKE needs no second curve.
-Every hash in HKE is a tagged hash, the domain-separated SHA-256 that BIP340 defines, [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] and [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP352] use, and <code>libsecp256k1</code> implements.
-
-<code>H_seed</code> serves as UG's <code>KDF</code>, which the draft requires to be indifferentiable from a random oracle, even to a quantum attacker (§6.1.5).
+<code>H_seed</code> serves as UG's <code>KDF</code>, which the draft requires to be indifferentiable from a random oracle, even to a quantum attacker ([https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.1.5 §6.1.5]).
 SHA-256 does not meet this for arbitrary inputs, because of length extension ([https://doi.org/10.1007/11535218_26 Coron et al.]).
 Each tagged hash in HKE, however, is applied only to inputs of one length (2402 bytes for <code>H_seed</code>), and inputs of one length are prefix-free.
 On prefix-free inputs, Merkle–Damgård is indifferentiable from a random oracle if its compression function is ideal ([https://doi.org/10.1007/11535218_26 Coron et al.]; [https://eprint.iacr.org/2018/276 Zhandry] against quantum attackers).
-In the draft, UG's combiner ends with a label that keeps the KDFs of different instantiations apart (§6.5.1); in HKE, the tag of <code>H_seed</code> already does this, so the label is empty.
+In the draft, UG's combiner ends with a label that keeps the KDFs of different instantiations apart ([https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12#section-6.5.1 §6.5.1]); in HKE, the tag of <code>H_seed</code> already does this, so the label is empty.
 
-===ML-KEM-768===
+===Why ML-KEM-768?===
 
 The encapsulation key <code>ek</code> is part of the recipient's public key, and a ciphertext <code>c</code> is published with every encapsulation, so their sizes are the main criterion for choosing the KEM.
 <code>ML-KEM</code> ([https://csrc.nist.gov/pubs/fips/203/final FIPS 203]) has smaller keys and ciphertexts than [https://pqc-hqc.org/doc/hqc_specifications_2025_08_22.pdf HQC], the only other KEM [https://csrc.nist.gov/pubs/ir/8545/final NIST has selected], which at category 3 has a 4514-byte <code>ek</code> and an 8978-byte <code>c</code>.
-[https://eprint.iacr.org/2018/383 CSIDH], an isogeny-based key exchange with 64-byte public keys at its original 512-bit parameters, needs public values of about 1 KB at category 3 ([https://eprint.iacr.org/2020/1520 SQALE]), close to the 1184-byte <code>ek</code> and 1088-byte <code>c</code> of <code>ML-KEM-768</code>, and its group action is orders of magnitude slower.
+[https://eprint.iacr.org/2018/383 CSIDH], an isogeny-based key exchange with 64-byte public keys at its original 512-bit parameters, needs public values of about 1 KB at category 3 ([https://eprint.iacr.org/2020/1520 SQALE]), close to the 1184-byte <code>ek</code> and 1088-byte <code>c</code> of <code>ML-KEM-768</code>, while running orders of magnitude slower.
 
 HKE uses <code>ML-KEM-768</code> (category 3), which FIPS 203 (§8) recommends as the default parameter set because it &quot;provides a large security margin at a reasonable performance cost&quot;.
 X-Wing, which targets category 1, also uses <code>ML-KEM-768</code> rather than <code>ML-KEM-512</code>, as a hedge against future cryptanalysis ([https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-11#section-1.2 X-Wing draft], §1.2).
