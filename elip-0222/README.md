@@ -1,13 +1,13 @@
 # ELIP HKE reference implementation
 
-Python reference implementation of the Specification section of `../elip-hybrid-key-encapsulation.mediawiki`.
+Python reference implementation of the Specification section of `../elip-0222.mediawiki`.
 It is for checking the spec, not for production: neither secp256k1lab nor `kyber-py` is constant time.
 Requires Python 3.11 or later (secp256k1lab's minimum).
 
 ## Run
 
 ```sh
-cd elip-hybrid-key-encapsulation
+cd elip-0222
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest -v

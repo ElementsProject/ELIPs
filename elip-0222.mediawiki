@@ -6,7 +6,7 @@
           Mykyta Redko <mredko@blockstream.com>
           Viktoriia Balatska <vbalatska@blockstream.com>
   Comments-Summary: No comments yet.
-  Comments-URI: TBD
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0222
   Status: Draft
   Type: Standards Track
   Created: 2026-07-18
@@ -307,9 +307,9 @@ HKE is a new primitive and changes no existing protocol.
 
 ==Test Vectors and Reference Code==
 
-A Python reference implementation of the Specification section is in [[elip-hybrid-key-encapsulation/hke.py|<code>elip-hybrid-key-encapsulation/hke.py</code>]], with one function per pseudocode definition.
+A Python reference implementation of the Specification section is in [[elip-0222/hke.py|<code>elip-0222/hke.py</code>]], with one function per pseudocode definition.
 It uses a vendored copy of the [https://github.com/secp256k1lab/secp256k1lab/ secp256k1lab] library at version 1.0.0 (commit [https://github.com/secp256k1lab/secp256k1lab/commit/44dc4bd893b8f03e621585e3bf255253e0e0fbfb 44dc4bd893b8f03e621585e3bf255253e0e0fbfb]), and [https://github.com/GiacomoPope/kyber-py <code>kyber-py</code>] 1.2.0 for ML-KEM-768, which passes NIST's ACVP test vectors for FIPS 203.
-Test vectors are in [[elip-hybrid-key-encapsulation/vectors.json|<code>elip-hybrid-key-encapsulation/vectors.json</code>]] and are produced by [[elip-hybrid-key-encapsulation/gen_vectors.py|<code>elip-hybrid-key-encapsulation/gen_vectors.py</code>]] in the same directory.
+Test vectors are in [[elip-0222/vectors.json|<code>elip-0222/vectors.json</code>]] and are produced by [[elip-0222/gen_vectors.py|<code>elip-0222/gen_vectors.py</code>]] in the same directory.
 Each vector lists its inputs under <code>given</code> and the values an implementation must compute under <code>expected</code>; failure vectors have no <code>expected</code>.
 They cover:
 

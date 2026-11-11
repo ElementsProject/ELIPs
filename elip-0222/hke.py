@@ -1,4 +1,4 @@
-"""Reference implementation of HKE (`elip-hybrid-key-encapsulation.mediawiki`, Specification).
+"""Reference implementation of HKE (`elip-0222.mediawiki`, Specification).
 
 Every function below corresponds one-to-one to a definition in the ELIP and
 keeps its name, argument order and step order, so the code can be read side by
