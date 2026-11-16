@@ -1,0 +1,13 @@
+# Lets other code depend on `hke` via `pip install -e`.
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elip-hke"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = ["kyber-py==1.2.0"]
+
+[tool.setuptools]
+py-modules = ["hke"]
