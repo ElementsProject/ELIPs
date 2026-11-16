@@ -178,7 +178,8 @@ EncapsDerand(B_bytes, ek, e, m):
     Return (K, (E_bytes, c))</pre>
 
 We give the version of <code>Encaps</code> which takes the control of the randomness generation to allow the generation of test vectors.
-Real implementations MUST instead use <code>Encaps</code> that computes <code>(K_q, c) := KEM.Encaps(ek)</code>, which draws <code>m</code> itself.
+Real implementations MUST instead use <code>Encaps</code>, drawing fresh <code>e</code> and <code>m</code> from a cryptographically secure random number generator for every encapsulation.
+<code>KEM.Encaps(ek)</code> (FIPS 203, Algorithm 20) is <code>KEM.Encaps_internal(ek, m)</code> with such an <code>m</code>, so either may be used.
 
 A sender publishes <code>E_bytes</code> and <code>c</code> for the recipient (e.g. in a transaction output) and uses <code>K</code> to encrypt data to the recipient (e.g. in Liquid it seeds the DRBG for witness-recoverable range proofs).
 An application that needs several keys from one encapsulation MUST derive them from <code>K</code> with domain separation, for example as <code>H_t(K)</code> with a different tag <code>t</code> for each key, rather than use <code>K</code> itself for more than one purpose.
