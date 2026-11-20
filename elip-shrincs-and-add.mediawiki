@@ -1,0 +1,778 @@
+<pre>
+  ELIP: ?
+  Layer: Consensus (hard fork)
+  Title: OP_SHRINCS and OP_SHRINCSADD
+  Author: Dmytrii Kurbatov <dkurbatov@blockstream.com>
+          Oleksandr Kurbatov <okurbatov@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-XXX
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-11-19
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This ELIP proposes two new opcodes for Elements, <code>OP_SHRINCS</code> (<code>0xb3</code>) and <code>OP_SHRINCSADD</code> (<code>0xb4</code>), which verify [https://github.com/SHRINCS/shrincs-bip SHRINCS] signatures. The opcodes work in P2WSH outputs, in tapscript and in the block signing script. The document also defines the <code>headers2</code> message, which nodes need once block headers carry SHRINCS signatures. The change requires a hard fork.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+SHRINCS signatures can already be verified on Liquid with a [https://github.com/BlockstreamResearch/shrincs-simplicity-verifier/tree/optimize_fors/bip Simplicity verifier]. A spend with it costs about 1,172 vB with a first stateful signature and about 4,953 vB with a stateless one. However, Simplicity runs only inside taproot outputs, which causes two problems:
+
+# Every taproot output has a key spending path. A cryptographically relevant quantum computer (CRQC) can find the private key behind the output key, even if the internal key is unspendable. A Simplicity output is safe from a CRQC only if the key path is disabled, which Elements does not support.
+# Simplicity cannot be used for block signatures. Liquid blocks are signed under the Dynafed block signing script (<code>signblockscript</code>), which <code>CheckProofGeneric</code> checks outside of any transaction: (1) <code>CheckProofGeneric</code> does not set <code>SCRIPT_VERIFY_TAPROOT</code> or <code>SCRIPT_VERIFY_SIMPLICITY</code>, so a witness v1 <code>signblockscript</code> is treated as an unknown witness version and every block proof passes; (2) the block signature checker does not support Simplicity, so with those flags set every Simplicity block proof would fail.
+
+Native opcodes avoid both problems. A P2WSH output commits only to the hash of its script and has no key path. The <code>signblockscript</code> stays a v0 witness program, and the block signature checker passes the block hash to the new opcodes as it does for <code>OP_CHECKSIG</code>. The opcodes also work in tapscript.
+
+Native opcodes are also cheaper. For the same transaction, with one input, one unblinded output and a fee output, a P2WSH spend with the script <code><nowiki><pubkey> OP_SHRINCS</nowiki></code> takes 329 vB with a first stateful signature and 1,653 vB with a stateless one.
+
+==Design==
+
+===Overview===
+
+Both opcodes take a SHRINCS public key and a signature. A SHRINCS signature is between 548 and 5,777 bytes long, which exceeds the maximum size of a stack element (520 bytes). The witness therefore carries it in chunks of 80 bytes, with a small type flag <code>q</code> on top. The interpreter derives the layout of the chunks from <code>q</code>, joins them and verifies the signature with the unmodified SHRINCS verification algorithm. Each check is charged against a validation weight budget in proportion to the signature length. <code>OP_SHRINCS</code> pushes the result, and <code>OP_SHRINCSADD</code> adds it to an accumulator for threshold scripts, as <code>OP_CHECKSIGADD</code> does.
+
+The opcodes need no new output or address type. Block signers use them in the <code>signblockscript</code>, with stateless signatures. A block header then takes about 65 KB instead of 1.5 KB, which is more than the <code>headers</code> message can carry in batches of 2,000. A new <code>headers2</code> message therefore limits a batch by its size in bytes.
+
+This ELIP does not define wallet standards for SHRINCS, such as descriptors, PSET fields or key derivation.
+
+===Relation to SHRINCS BIP===
+
+This ELIP is an instantiation of [https://github.com/SHRINCS/shrincs-bip/blob/main/SHRINCS.md BIP SHRINCS] for Liquid. This ELIP takes the SHRINCS signature scheme without changes: the same parameters, keys, signatures and verification function. The only difference is how script invokes the SHRINCS verifier:
+
+{| class="wikitable"
+! !! [https://github.com/SHRINCS/shrincs-bip/blob/main/leaf-version-0xC2.mediawiki BIP draft] !! This ELIP
+|-
+| Script versions || tapscript, leaf version <code>0xC2</code> || witness v0 and tapscript
+|-
+| Block signatures || none || in the <code>signblockscript</code>
+|-
+| Opcode || <code>OP_CHECKSIG</code>, with a new flag byte || two new opcodes
+|-
+| Signature (in the witness) || one element || chunks of 80 bytes
+|-
+| Unknown key type || the check succeeds || the script fails
+|-
+| Fork || soft fork || hard fork
+|}
+
+The ''Rationale'' section gives the reasons.
+
+==Specification==
+
+This section specifies the consensus rules. The following conventions are used:
+
+* The key words MUST, MUST NOT, SHOULD and MAY are to be interpreted as described in [https://www.rfc-editor.org/rfc/rfc2119 RFC 2119].
+* <code>||</code> denotes the concatenation of byte strings, and <code>ceildiv(a, b)</code> is <code>a / b</code> rounded up.
+* Sizes are in bytes. Hexadecimal strings show bytes in order, the first byte first.
+* '''Transaction context''' means that an opcode is executed while a transaction input is validated. '''Block context''' means that it is executed in the <code>signblockscript</code> while a block header is validated.
+* The '''header witness''' is the witness of the <code>signblockscript</code>, which a Dynafed block header carries in <code>m_signblock_witness</code>.
+
+===SHRINCS version===
+
+The signature scheme is SHRINCS as defined by the [https://github.com/SHRINCS/shrincs-bip/blob/a5891ec5b360a732c097e1d6af1ae59515a2560a/SHRINCS.md SHRINCS specification] at commit <code>a5891ec5b360a732c097e1d6af1ae59515a2560a</code>.
+
+===Opcode allocation===
+
+The opcodes 179 (<code>0xb3</code>) and 180 (<code>0xb4</code>), until now <code>OP_NOP4</code> and <code>OP_NOP5</code>, are named <code>OP_SHRINCS</code> and <code>OP_SHRINCSADD</code>.
+
+The rules below only apply in these two cases:
+
+* in transaction context, if the deployment is active for the block that contains the transaction (see ''Activation'');
+* in block context, always.
+
+In all other cases <code>0xb3</code> and <code>0xb4</code> remain <code>OP_NOP4</code> and <code>OP_NOP5</code>.
+
+Where the rules apply, the opcodes depend on the script version:
+
+* <code>WITNESS_V0</code>: the witness scripts of P2WSH outputs, of P2SH-wrapped P2WSH outputs and of the <code>signblockscript</code>. The opcodes verify SHRINCS signatures as specified below.
+* <code>TAPSCRIPT</code>: tapscript leaves, which have leaf version <code>0xc4</code> in Elements. The same rules apply.
+* <code>BASE</code>: bare and P2SH scripts. Executing either opcode MUST fail the script with <code>SCRIPT_ERR_BAD_OPCODE</code> (see ''Rationale'').
+
+Validation MUST be equivalent to performing the steps below in the specified order.
+
+===Public key===
+
+A SHRINCS public key is a stack element of exactly 48 bytes:
+
+<pre>
+PK = PK.seed || PK.sl || PK.sf
+</pre>
+
+<code>PK.seed</code> is the public seed, <code>PK.sl</code> the root of the stateless hypertree and <code>PK.sf</code> the root of the stateful FXMSS tree, 16 bytes each. A public key of any other length MUST fail the script.
+
+===Signature encoding===
+
+A signature occupies one '''slot''' of stack elements. From top to bottom, a slot consists of:
+
+{| class="wikitable"
+! Element !! Size !! Description
+|-
+| <code>q</code> || 0 to 2 bytes || Type flag: 1 to 255 stateful, 256 stateless, 0 no signature
+|-
+| <code>sighash_type</code> || 1 byte || SIGHASH byte; absent in block context
+|-
+| <code>chunk_N .. chunk_1</code> || 80 bytes each, except <code>chunk_N</code> || The signature without its first byte, cut every 80 bytes; <code>chunk_1</code> is the deepest
+|}
+
+<code>q</code> fixes the length of the signature and therefore the number and sizes of the chunks. The interpreter pops the chunks, joins them from bottom to top and prepends the '''indicator''' byte, which it derives from <code>q</code>. The result is the signature exactly as the SHRINCS specification serializes it. The SIGHASH byte is a separate element and is not part of the signature.
+
+<pre>
+ Stateful signature, q = 1
+ =========================================================================================
+
+          +----------------+
+   top    | q = 1          |   1 B   read first; fixes L = 547, N = 7 and the indicator
+          +----------------+
+          | sighash_type   |   1 B   defines the message (absent for the block sig)
+          +----------------+
+          | chunk_7        |  67 B  \
+          +----------------+         |
+          | chunk_6        |  80 B   |
+          +----------------+         |
+          |      ...       |         |  SHRINCS signature chunks
+          +----------------+         |
+          | chunk_2        |  80 B   |
+          +----------------+         |
+   bottom | chunk_1        |  80 B  /
+          +----------------+
+
+ The interpreter pops the chunks, concatenates them bottom to top, and prepends the
+ indicator it derives from q:
+
+   +-----------+-------------------------------------------------------------+
+   | indicator |   chunk_1 || chunk_2 || ... || chunk_7   =   L = 547 bytes  |
+   +-----------+-------------------------------------------------------------+
+         ^                                  ^
+         |                                   ` - R || leaf_index || wots+c || mp_1,
+         |                                       exactly as SHRINCS serializes it
+          ` - indicator = FXMSS_HEIGHT - q = 254
+ =========================================================================================
+</pre>
+
+====Type flag <code>q</code>====
+
+<code>q</code> is a <code>CScriptNum</code>:
+
+{| class="wikitable"
+! Value !! Encoding !! Meaning
+|-
+| <code>0</code> || empty vector || No signature: the signature check returns false without failing the script. Threshold scripts use this the way BIP-342 uses an empty signature.
+|-
+| <code>1..255</code> || 1 byte up to 127, 2 bytes from 128 (<code>0x80 0x00</code>) || Stateful signature with <code>q</code> authentication path nodes, i.e. a WOTS+C leaf at depth <code>q</code>.
+|-
+| <code>256</code> || <code>0x00 0x01</code> || Stateless signature (<code>FXMSS_HEIGHT + 1</code>, where <code>FXMSS_HEIGHT</code> = 255).
+|-
+| other || || The script MUST fail.
+|}
+
+<code>q</code> MUST be minimally encoded and at most 2 bytes long, regardless of script verification flags. Otherwise one signature could have two valid witnesses, for example with <code>q = 1</code> encoded as <code>0x01</code> or <code>0x01 0x00</code>.
+
+<code>q</code> is the leaf depth, not the signer's state counter; the verifier sees the counter only through <code>leaf_index</code>. In a balanced FXMSS tree <code>q</code> stays constant for the life of a key. In an unbalanced tree of depth <code>D</code> it grows from 1 to <code>D</code>, one level per signature, and the last two signatures share depth <code>D</code>.
+
+====Chunks====
+
+From <code>q</code> the interpreter computes <code>L</code>, the length of the signature without the indicator, and <code>N</code>, the number of chunks:
+
+<pre>
+ L = 530 + index_size + 16 * q     stateful, index_size = ceildiv(min(q, 64), 8)
+ L = SPHX_SIGNATURE_SIZE = 5776    stateless
+ N = ceildiv(L, 80)
+</pre>
+
+The first <code>N - 1</code> chunks MUST be exactly 80 bytes long, and <code>chunk_N</code> MUST hold the remaining <code>L - 80 * (N - 1)</code> bytes. Any other length MUST fail the script. Fixed lengths give each signature a single witness encoding, so the wtxid of a transaction and the size of a header witness do not depend on how the signature is cut.
+
+The consensus limit <code>MAX_SCRIPT_ELEMENT_SIZE</code> = 520 forces the split, and the relay limit of 80 bytes per witness element sets the chunk size (see ''Relay policy'').
+
+====Indicator byte====
+
+The indicator is the first byte of a serialized SHRINCS signature and selects the stateful or stateless path. The interpreter derives it from <code>q</code>:
+
+<pre>
+indicator = FXMSS_HEIGHT - q      stateful, 1 <= q <= 255
+indicator = FXMSS_HEIGHT          stateless, q = 256
+</pre>
+
+Each valid <code>q</code> maps to a different indicator, so the two signature types cannot be confused.
+
+====SIGHASH byte and message====
+
+In transaction context the SIGHASH byte sits directly below <code>q</code>. The allowed values depend on the script version:
+
+* <code>WITNESS_V0</code>: <code>0x01</code>, <code>0x02</code>, <code>0x03</code>, <code>0x81</code>, <code>0x82</code>, <code>0x83</code>, and with <code>SCRIPT_SIGHASH_RANGEPROOF</code> also <code>0x41</code>, <code>0x42</code>, <code>0x43</code>, <code>0xc1</code>, <code>0xc2</code>, <code>0xc3</code>. For ECDSA, Elements enforces this set only as policy (<code>SCRIPT_VERIFY_STRICTENC</code>); for SHRINCS it is consensus.
+* <code>TAPSCRIPT</code>: <code>0x01</code>, <code>0x02</code>, <code>0x03</code>, <code>0x81</code>, <code>0x82</code>, <code>0x83</code>, regardless of flags. The Elements taproot signature hash supports no others.
+
+Any other value MUST fail the script with <code>SCRIPT_ERR_SHRINCS_SIG_HASHTYPE</code>. This includes <code>0x00</code> (<code>SIGHASH_DEFAULT</code>), and the SIGHASH byte cannot be omitted.
+
+The message is the signature hash that Elements already computes for the script version, with the SIGHASH byte as hash type:
+
+{| class="wikitable"
+! Script version !! Message
+|-
+| <code>WITNESS_V0</code> || The segwit v0 signature hash, BIP-143 as Elements extends it, over the witness script from the last executed <code>OP_CODESEPARATOR</code> and the value of the spent output, as for <code>OP_CHECKSIG</code>. A hash type with <code>SIGHASH_RANGEPROOF</code> set also commits to the range proofs of the outputs.
+|-
+| <code>TAPSCRIPT</code> || The taproot signature hash, BIP-341 as Elements extends it, with the BIP-342 extension: <code>ext_flag</code> = 1, the leaf hash of the executing script, <code>key_version</code> = <code>0x00</code> and the position of the last executed <code>OP_CODESEPARATOR</code>, as for <code>OP_CHECKSIG</code> in tapscript.
+|}
+
+The signature checker determines the context. The transaction checker reads a SIGHASH byte and uses the transaction's signature hash as the message. The block checker reads no SIGHASH byte, uses the block hash as the message and accepts only stateless signatures. The block hash does not cover the header witness. In both contexts the message is 32 bytes long, in the byte order in which the hash function outputs it.
+
+====Signature sizes====
+
+{| class="wikitable"
+! Signature !! <code>L</code> !! <code>N</code> !! Last chunk !! Stack elements
+|-
+| Stateful, <code>q = 1</code> || 547 || 7 || 67 bytes || 9
+|-
+| Stateful, <code>q = 255</code> || 4,618 || 58 || 58 bytes || 60
+|-
+| Stateless || 5,776 || 73 || 16 bytes || 75
+|}
+
+The number of stack elements includes <code>q</code> and the SIGHASH byte. In block context it is one less.
+
+====Building a slot====
+
+This Python code builds a slot from a signature as <code>shrincs_sign</code> returns it.
+
+<source lang="python">
+FXMSS_HEIGHT = 255
+
+def encode_q(q):
+    """q as a minimal CScriptNum, for 0 <= q <= 256."""
+    if q == 0:
+        return b""
+    if q < 128:
+        return bytes([q])
+    return bytes([q & 0xff, q >> 8])
+
+def witness_slot(sig, sighash_type=None):
+    """Witness elements of one slot, bottom to top.
+
+    sig: a serialized SHRINCS signature, or None if the key does not sign.
+    sighash_type: the SIGHASH byte, or None in block context."""
+    if sig is None:
+        return [b""]
+    q = 256 if sig[0] == FXMSS_HEIGHT else FXMSS_HEIGHT - sig[0]
+    body = sig[1:]
+    slot = [body[i:i + 80] for i in range(0, len(body), 80)]
+    if sighash_type is not None:
+        slot.append(bytes([sighash_type]))
+    slot.append(encode_q(q))
+    return slot
+</source>
+
+===Signature check===
+
+Both opcodes use the following procedure. It consumes one slot and returns true or false, or fails the script. Here and in the next two sections, "fail with E" means that the script MUST fail with error E.
+
+# If the stack is empty, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>. Pop <code>q</code> as a <code>CScriptNum</code>. If it is not minimally encoded or is longer than 2 bytes, fail with <code>SCRIPT_ERR_MINIMALDATA</code>.
+# If <code>q = 0</code>, return false. Nothing else is popped.
+# If <code>q = 256</code>, set <code>L = 5776</code> and <code>indicator = FXMSS_HEIGHT</code>. If <code>1 <= q <= 255</code>, set <code>L = 530 + ceildiv(min(q, 64), 8) + 16 * q</code> and <code>indicator = FXMSS_HEIGHT - q</code>. Otherwise fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>. Set <code>N = ceildiv(L, 80)</code>.
+# In transaction context: if the stack is empty, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>. Otherwise pop the SIGHASH byte. If the element is not one byte or its value is not allowed, fail with <code>SCRIPT_ERR_SHRINCS_SIG_HASHTYPE</code>. Compute the message. In block context, pop nothing; the message is the block hash.
+# If fewer than <code>N</code> elements remain, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>.
+# Pop <code>N</code> elements. The first one popped is <code>chunk_N</code> and MUST be <code>L - 80 * (N - 1)</code> bytes long; the others MUST be 80 bytes long. Otherwise fail with <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>.
+# Join the chunks from bottom to top and prepend the indicator. The result is a signature of <code>L + 1</code> bytes.
+# Charge the validation weight budget (see ''Validation weight''). If the budget is exceeded, fail with <code>SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT</code>.
+# Verify the signature (see ''Signature verification''). Verification fails if step 4 could not compute the message, as in tapscript with <code>SIGHASH_SINGLE</code> and no output at the input's index. In block context, verification also fails for any signature that is not 5,777 bytes long.
+# If verification fails, fail with <code>SCRIPT_ERR_SIG_NULLFAIL</code>, regardless of script verification flags. Otherwise return true.
+
+===OP_SHRINCS===
+
+<pre>
+<sig_elements> <q> <pubkey> OP_SHRINCS
+</pre>
+
+<code><nowiki><sig_elements></nowiki></code> are the chunks and, in transaction context, the SIGHASH byte. They are absent when <code>q = 0</code>.
+
+# If the stack is empty, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>.
+# Pop the public key. If it is not 48 bytes long, fail with <code>SCRIPT_ERR_PUBKEYTYPE</code>.
+# Run the signature check.
+# Push <code>0x01</code> if it returned true, or an empty vector if it returned false.
+
+===OP_SHRINCSADD===
+
+Like BIP-342 <code>OP_CHECKSIGADD</code>, this opcode adds the result of a signature check to an accumulator.
+
+<pre>
+<sig_elements> <q> <num> <pubkey> OP_SHRINCSADD
+</pre>
+
+# If the stack is empty, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>.
+# Pop the public key. If it is not 48 bytes long, fail with <code>SCRIPT_ERR_PUBKEYTYPE</code>.
+# If the stack is empty, fail with <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>. Pop <code>num</code> as a <code>CScriptNum</code> of at most 4 bytes, as <code>OP_CHECKSIGADD</code> does. A longer encoding MUST fail the script.
+# Run the signature check.
+# Push <code>num + 1</code> if it returned true, or <code>num</code> if it returned false.
+
+As for <code>OP_CHECKSIGADD</code>, a <code>num</code> that is not minimally encoded fails only under <code>SCRIPT_VERIFY_MINIMALDATA</code>. That flag is relay policy for transactions and is always set for the <code>signblockscript</code>.
+
+====Threshold scripts====
+
+An <code>m</code>-of-<code>n</code> threshold is written as:
+
+<pre>
+<pubkey_1> OP_SHRINCS <pubkey_2> OP_SHRINCSADD ... <pubkey_n> OP_SHRINCSADD <m> OP_NUMEQUAL
+</pre>
+
+The witness has one slot per public key, in reverse order: the slot for <code>pubkey_1</code> is on top. The slot of a key that did not sign is a single empty element, <code>q = 0</code>.
+
+<pre>
+ A 2-of-3 threshold: pubkey_1 signs in the stateful mode, pubkey_2 in the stateless
+ ========================================================================================================
+
+   witness slot                          executes                   result on the stack
+   -----------------------------------   ------------------------   -------------------
+ top
+   slot for pubkey_1                     <pubkey_1> OP_SHRINCS      true
+   q = 1, stateful, 7 + 2 elements       verifies                   accumulator starts
+
+   slot for pubkey_2                     <pubkey_2> OP_SHRINCSADD   2
+   q = 256, stateless, 73 + 2 elements   verifies, adds 1           threshold reached
+
+   slot for pubkey_3                     <pubkey_3> OP_SHRINCSADD   2
+   q = 0, did not sign, 1 element        pops nothing further,      unchanged
+                                         no NULLFAIL, adds 0
+ bottom
+                                         <2> OP_NUMEQUAL            true, stack is clean
+
+</pre>
+
+Any numeric comparison can replace <code>OP_NUMEQUAL</code>, for example <code>OP_GREATERTHANOREQUAL</code>.
+
+===Signature verification===
+
+A signature <code>sig</code> is valid for a public key <code>pk</code> and a message <code>msg</code> if <code>shrincs_verify(msg, sig, ctx, pk)</code> of the SHRINCS specification returns true. The context is fixed:
+
+<pre>
+ctx = "liquid_shrincs"
+</pre>
+
+The same <code>ctx</code> is used in transaction and block context.
+
+===Resource limits===
+
+====Verification cost====
+
+The number of SHA-256 compressions needed to verify one signature:
+
+{| class="wikitable"
+! Signature type !! Compressions (min - max) !! Max compressions per byte
+|-
+| Stateful || 256 - 510 || 0.467
+|-
+| Stateless || 467 - 2,792 || 0.483
+|}
+
+These are the figures of the SHRINCS specification, adjusted for the 14-byte context, which costs one more compression on the stateful path. A signer can raise the cost of a stateless signature without changing its size, so the limits below are based on the maximum of 2,792 compressions and not on the average.
+
+====Validation weight====
+
+BIP-342 gives each tapscript execution a validation weight budget: the serialized size of the witness stack plus <code>VALIDATION_WEIGHT_OFFSET</code> = 50. This ELIP applies the same budget to witness v0 scripts, including the <code>signblockscript</code>. There the budget is the serialized size of the witness stack, witness script included, plus 50.
+
+Each signature check with <code>q</code> other than 0 decrements the budget before the signature is verified. If that brings the budget below zero, the script fails. BIP-342 charges a flat 50 per signature check (<code>VALIDATION_WEIGHT_PER_SIGOP_PASSED</code>). The new opcodes, in both script versions, charge in proportion to the signature length:
+
+<pre>
+ cost = floor(len(signature) * 10 / 13)
+</pre>
+
+where <code>len(signature) = L + 1</code>; <code>q</code> and the SIGHASH byte are not counted. In witness v0 only the new opcodes charge the budget. In tapscript the existing signature opcodes keep charging 50 each against the same budget.
+
+The rate equals BIP-342's charge for Schnorr (50 for 65 bytes). It is safe because SHRINCS needs at most 0.483 compressions per byte, against roughly 1.3 to 2.0 for Schnorr per byte of signature and public key. Without a budget, a witness v0 script could verify one signature many times by copying it (see ''Block verification cost'').
+
+An honest spend always fits, since every signature adds its own size to the budget:
+
+<pre>
+ sum of charges  <=  10/13 * (witness size)  <  (witness size) + 50  =  budget
+</pre>
+
+The 11-of-15 header witness of ''Block header size'', for example, has a budget of 65,184 and is charged 11 × 4,443 = 48,873.
+
+====Stack size and sigops====
+
+<code>MAX_STACK_SIZE</code> = 1,000 applies to the whole witness, so one script carries at most 13 stateless or 16 of the largest stateful signatures. Larger thresholds need several inputs.
+
+<code>GetSigOpCount</code> does not count the new opcodes. The validation weight budget bounds their work instead.
+
+====Block weight====
+
+The block weight is defined as in BIP-141: three times the size of the block without witness data, plus its size with witness data. The block signatures in the header (<code>m_signblock_witness</code>) belong to both sizes, so each of their bytes MUST count as four weight units (see ''Block signature weight'').
+
+==Rationale==
+
+===Why P2WSH and not a new output type?===
+
+The Bitcoin proposal builds on P2MR (BIP-360), a new output type without a key path. Elements has no P2MR. P2WSH has no key path either and commits to its script with a 256-bit hash, and the <code>signblockscript</code> is a P2WSH program in any case. If Elements adds P2MR later, its tapscript leaves can use the same opcodes.
+
+===Why new opcodes and not an algorithm flag?===
+
+The Bitcoin proposal adds tapscript leaf version <code>0xC2</code>, in which <code>OP_CHECKSIG</code> reads an algorithm flag from the public key. Leaf versions exist only in taproot, and in witness v0 <code>OP_CHECKSIG</code> must keep verifying ECDSA. New opcodes work in both witness versions and leave existing scripts unchanged.
+
+===Why split signatures and not raise the element size limit?===
+
+The Bitcoin proposal raises the element limit to 6,000 bytes inside its leaf version and argues against splitting signatures. Most of its objections do not apply here:
+
+* The spender cannot choose the split: <code>q</code> fixes the number and length of the chunks.
+* The interpreter does not parse the signature to find its length; it reads only <code>q</code>.
+* Off-chain code only has to concatenate the chunks and prepend the indicator.
+
+Two objections remain in part. The number of elements that an opcode pops depends on the witness, which makes a script harder to analyze. But only two outcomes do not fail the script: one element for an empty slot, or the full slot of one valid signature. And the split costs about 1% in size: 72 bytes for a stateless block signature and 6 bytes for the smallest stateful signature.
+
+In witness v0, raising <code>MAX_SCRIPT_ELEMENT_SIZE</code> would change the limits of every existing script, and a 5,777-byte element would also need a relay policy change.
+
+===Why a fixed context?===
+
+The SHRINCS specification recommends that <code>ctx</code> be "set to some hard-coded constant value, to prevent misuse". A Liquid signature is then invalid in any protocol that uses a different context, and vice versa. The context is not in the witness. Transactions and blocks share the context. A block signature could pass as a transaction signature only if a block hash were equal to a signature hash, which would take a SHA-256 collision.
+
+===Why do the opcodes fail in legacy scripts?===
+
+The opcodes fail in <code>BASE</code> scripts for three reasons:
+
+* The legacy signature hash signs the constant 1 for <code>SIGHASH_SINGLE</code> without a matching output, and such a signature is valid in any transaction. A stateful key would also waste a leaf on it.
+* The legacy signature hash is quadratic in the transaction size, and the new opcodes are not limited by the sigop count. One input could run 17 of them (see ''Block verification cost'').
+* Legacy scripts offer no benefit. A stateless signature in <code>scriptSig</code> weighs 23,108 WU instead of 5,777, and P2SH's 160-bit hash gives a shared script only 80 bits of collision resistance.
+
+The opcodes fail rather than stay NOPs, because a NOP would leave the public key on the stack as true, and anyone could spend a P2SH output built around <code>OP_SHRINCS</code>.
+
+===Why only stateless signatures for blocks?===
+
+Block signers sign every minute without human involvement, on hardware that may be replaced or restored from backup. A restored state counter reuses leaves, which breaks a stateful key. A stateless signature has no state, and its limit of 2<sup>40</sup> signatures lasts about two million years at one block per minute. Its fixed length also fixes the header witness size, so <code>m_signblock_witness_limit</code> can be set exactly. The cost is size: 5,777 bytes against 548 for the smallest stateful signature.
+
+===Why NOP opcodes and not OP_SUCCESS?===
+
+Using free <code>OP_SUCCESS</code> values, such as <code>0xe5</code> and <code>0xe6</code>, would make the change a soft fork for transactions. But <code>OP_SUCCESS</code> exists only in tapscript, which would rule out P2WSH outputs, the main point of this ELIP. For blocks the change is a hard fork either way, since every node runs the v0 <code>signblockscript</code> in full.
+
+==Backwards Compatibility==
+
+This change is a hard fork. In Elements, <code>OP_NOP4</code> and <code>OP_NOP5</code> are plain NOPs in every script version (<code>SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS</code> is only policy), and witness scripts must end with a clean stack. A node that has not upgraded therefore skips <code>OP_SHRINCS</code>, finds the signature left on the stack and rejects a spend that an upgraded node accepts. In bare and P2SH scripts the change only adds a failure, which is a soft fork.
+
+Scripts that rely on <code>OP_NOP4</code> or <code>OP_NOP5</code> doing nothing become invalid. We know of none on Liquid, and nodes do not relay spends that execute these opcodes.
+
+Once block signers use SHRINCS, a block header takes about 65 KB instead of 1.5 KB (see ''Block header size''). Software that stores, parses or transfers headers has to cope with that size.
+
+==Deployment==
+
+===Activation===
+
+In transaction scripts the opcodes activate through version bits signaled by the block signers, as Simplicity did on Liquid. The deployment follows the Elements version bits rules, which are BIP-9 with block heights in place of times, with the following parameters:
+
+{| class="wikitable"
+! Parameter !! Liquid
+|-
+| Name || <code>shrincs</code>
+|-
+| Bit || 22
+|-
+| Start height || to be set by the Liquid Federation
+|-
+| Period || 10,080 blocks, one week
+|-
+| Threshold || 10,080 blocks, 100% of the period
+|-
+| Timeout || none
+|-
+| Minimum activation height || 0
+|}
+
+The new rules apply to every block for which the deployment is active. Until then, nodes treat the opcodes as discouraged upgradable NOPs and do not relay spends that use them. If a reorg undoes activation for the next block, a node MUST remove from its mempool every transaction whose witness script contains <code>OP_SHRINCS</code> or <code>OP_SHRINCSADD</code>. On other chains the deployment is not scheduled. Regtest and custom chains can set it with <code>-evbparams</code>.
+
+The <code>signblockscript</code> is not gated by the deployment: <code>CheckProofGeneric</code> has no chain state and always applies the new rules. This is safe as long as no earlier <code>signblockscript</code> executes <code>0xb3</code> or <code>0xb4</code>, which holds for Liquid.
+
+Switching block signers to SHRINCS takes a Dynafed proposal with the new script and a larger <code>m_signblock_witness_limit</code> (see ''Block header size''). With a limit that is too small no block can be signed, and the chain stops. The proposal should come only after nodes have upgraded to a release that also covers ''P2P and Node Resources''.
+
+===Relay policy===
+
+<code>IsWitnessStandard</code> limits a P2WSH witness to 100 elements of at most 80 bytes each (<code>MAX_STANDARD_P2WSH_STACK_ITEMS</code>, <code>MAX_STANDARD_P2WSH_STACK_ITEM_SIZE</code>), and tapscript witness elements to 80 bytes (<code>MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE</code>). These are policy, not consensus.
+
+With 100 elements, one P2WSH input fits one stateless signature, up to eleven stateful signatures with <code>q = 1</code>, or one with <code>q = 255</code>. Block signatures are not subject to relay policy.
+
+===Block header size===
+
+SHRINCS block signatures make each header about 44 times larger. The comparison uses Liquid's current 11-of-15 <code>OP_CHECKMULTISIG</code> and the same threshold with the new opcodes:
+
+<pre>
+<pubkey_1> OP_SHRINCS <pubkey_2> OP_SHRINCSADD ... <pubkey_15> OP_SHRINCSADD OP_11 OP_NUMEQUAL
+</pre>
+
+This script is 752 bytes long (fifteen 49-byte key pushes, fifteen opcodes, <code>OP_11</code> and <code>OP_NUMEQUAL</code>); the ECDSA script is 513 bytes. A Dynafed header has 149 bytes of fixed fields (more at the start of an epoch), followed by the header witness. Each signing key fills a slot of 73 chunks plus <code>q</code>. With length prefixes that is 72 × (1 + 80) + (1 + 16) + (1 + 2) = 5,852 bytes. A key that does not sign takes 1 byte.
+
+{| class="wikitable"
+! Component !! ECDSA, 11-of-15 !! SHRINCS, 11-of-15
+|-
+| Fixed header fields || 149 || 149
+|-
+| Witness element count || 1 (13 elements) || 3 (819 elements)
+|-
+| <code>OP_CHECKMULTISIG</code> dummy element || 1 || -
+|-
+| 11 signatures || 11 × 73 = 803 || 11 × 5,852 = 64,372
+|-
+| 4 keys that do not sign || - || 4 × 1 = 4
+|-
+| Witness script || 3 + 513 = 516 || 3 + 752 = 755
+|-
+| '''Header witness''' || '''1,321''' || '''65,134'''
+|-
+| '''Block header''' || '''1,470''' || '''65,283'''
+|}
+
+The ECDSA column assumes signature elements of 72 bytes: a DER signature of 71 bytes and a SIGHASH byte. Real headers are a few bytes smaller, because some DER signatures take 70 bytes. A SHRINCS header always has the same size.
+
+The size of the headers alone, at one block per minute (1 MB = 10<sup>6</sup> bytes, ECDSA header taken as 1,468 bytes):
+
+{| class="wikitable"
+! Period !! ECDSA !! SHRINCS
+|-
+| 1 day || 2.1 MB || 94.0 MB
+|-
+| 30 days || 63.4 MB || 2.82 GB
+|-
+| 1 year || 772 MB || 34.3 GB
+|-
+| 5 years || 3.86 GB || 172 GB
+|-
+| 10 years || 7.72 GB || 343 GB
+|}
+
+Nodes store each header witness twice, in the block files and in the block index, so disk usage grows by about 68.6 GB per year. Pruning removes only the first copy, unless the node also deletes pruned header witnesses (see ''Disk''). The 80-byte split itself adds 72 bytes per signature, or 792 bytes per block (1.2% of the header).
+
+The header also counts towards the block weight limit. Every byte of it counts four times, the header witness included (see ''Block weight''). The header then takes 4 × 65,283 = 261,132 WU, or 6.5% of the limit. Counted once, as in Elements 23.x, the header witness would take 65,134 WU and the whole header 1.6%.
+
+The eleven signatures cost at most 30,712 compressions to verify. Today's eleven ECDSA signatures cost the equivalent of about 1,400, at 127 each. A year of headers costs up to 16.1 billion compressions.
+
+Two limits constrain the switch:
+
+* <code>CheckProofGeneric</code> rejects a header witness larger than <code>m_signblock_witness_limit</code>, currently 1,325 bytes on Liquid. The Dynafed proposal that installs the SHRINCS <code>signblockscript</code> MUST raise it to at least 65,134 bytes; exactly 65,134 is enough.
+* <code>MAX_STACK_SIZE</code> caps the threshold. The 11-of-15 witness has 818 stack elements and each extra signer adds 73, so at most 13 of 15 keys can sign (964 elements; 14 would need 1,037).
+
+===Block signature weight===
+
+Elements 23.x leaves the header witness out of the block size without witness data, so each of its bytes counts as one weight unit. Elements 29.x serializes the header with it in both sizes, so each byte counts as four. This ELIP specifies the rule of Elements 29.x (see ''Block weight''), because the reference implementation is based on it. The rule does not depend on the <code>shrincs</code> deployment: a node applies it to every block, including blocks with ECDSA signatures, which become 3 * 1,321 = 3,963 WU heavier.
+
+Block assembly MUST reserve what the header witness will weigh: four weight units per byte. Elements 29.x reserves one weight unit per byte of <code>m_signblock_witness_limit</code>, as Elements 23.x does. With SHRINCS and a limit of 65,134 bytes that is 3 * 65,134 = 195,402 WU too little, or 4.9% of the block weight limit, and a full block would exceed the limit once it is signed.
+
+The block assembler still assume the rule of Elements 23.x, so the change may be unintended. If Elements returns to counting the header witness once, this ELIP will follow.
+
+==P2P and Node Resources==
+
+Nothing in this section is consensus. It specifies what nodes need once headers carry SHRINCS signatures. All numbers use the 65,283-byte header above.
+
+===Header sync===
+
+A node syncs headers with <code>getheaders</code> and receives up to <code>MAX_HEADERS_RESULTS</code> = 2,000 headers in one <code>headers</code> message, a '''batch'''. A full batch means that the peer has more headers. A full batch of SHRINCS headers would be 130.6 MB, but <code>MAX_PROTOCOL_MESSAGE_LENGTH</code> is 16,000,000 bytes, so a node more than about 245 blocks (four hours) behind could not sync at all. Raising the message limit would let peers force large buffers on a node, and lowering the header count would slow syncing of the existing history. Instead, batches are limited in bytes, and the sender says whether more headers follow:
+
+# A new <code>sendheaders2</code> message is added, with an empty payload. Its sender asks to have its <code>getheaders</code> answered with <code>headers2</code>.
+# A node implementing this ELIP MUST send <code>sendheaders2</code> to every peer between <code>version</code> and <code>verack</code>, as <code>wtxidrelay</code> is sent in BIP-339. The protocol version does not change: a peer that does not know the message ignores it. A node that receives <code>sendheaders2</code> after <code>verack</code> disconnects the peer.
+# A new <code>headers2</code> message is added. It answers <code>getheaders</code> and has the payload shown below. <code>getheaders</code> itself is unchanged.
+# A node MUST answer <code>getheaders</code> with <code>headers2</code> to a peer that has sent <code>sendheaders2</code>.
+# The sender of <code>headers2</code> stops at <code>hashStop</code>, its tip, 2,000 headers, or the header that would push the payload over <code>MAX_HEADERS_BYTES</code> = 8,000,000 bytes, whichever comes first.
+# While <code>more</code> is 1, the receiver requests the next batch, starting from the last header received. It MUST use <code>more</code>, and not a full count, to decide whether the peer has more headers.
+# The receiver MUST treat a peer as misbehaving for a <code>headers2</code> payload over <code>MAX_HEADERS_BYTES</code>, a <code>more</code> byte other than 0 or 1, more than 2,000 headers, or <code>more</code> = 1 with no headers.
+# A node MUST NOT send a <code>headers</code> message larger than <code>MAX_HEADERS_BYTES</code>. Block announcements (at most 8 headers, about 522 KB) still use <code>headers</code>, or <code>inv</code> if they would exceed the limit.
+
+The payload of <code>headers2</code>:
+
+{| class="wikitable"
+! Field !! Size !! Description
+|-
+| <code>more</code> || 1 byte || 1 if the sender stopped at the header count or byte limit with further headers left on its active chain, and 0 otherwise
+|-
+| <code>count</code> || CompactSize || The number of headers that follow
+|-
+| <code>headers</code> || <code>count</code> block headers || Each header is serialized as in <code>headers</code>, with no transaction count after it
+|}
+
+With these limits a batch holds 122 SHRINCS headers, so a year of headers takes about 4,300 round trips. A single header always fits, since a valid header is below the block weight limit. Peers that do not implement this ELIP may take a truncated <code>headers</code> batch for the chain tip, but they cannot validate SHRINCS headers anyway.
+
+A node that limits how long its sync peer may take SHOULD measure progress in bytes. Elements allows 15 minutes plus 2 ms per expected header, which for a year of SHRINCS headers means 34.3 GB in about 33 minutes (17.6 MB/s). A node implementing this ELIP therefore extends the deadline by 1 microsecond per byte of a <code>headers</code> or <code>headers2</code> message that advances the sync, about 1 MB/s. Messages that do not advance the sync do not extend it.
+
+===Memory===
+
+The block hash does not cover the header witness, so after verification a node needs the witness only to serve headers to peers or RPC. Elements nevertheless keeps every header witness in memory, in <code>CBlockIndex</code>. A SHRINCS header witness takes about 97 KB there, 1.5 times its serialized size, because each of its 819 elements is a separate heap allocation. That is about 51 GB per year of headers.
+
+The existing <code>-trim_headers</code> option drops header witnesses older than <code>total_valid_epochs</code> epochs (40,320 headers on Liquid) from memory and reloads them from disk on demand. It also keeps header sync within 40,320 headers of the validated chain during initial block download. With SHRINCS headers this caps memory at about 3.9 GB, plus up to 3.9 GB during initial download. The option does not change the on-disk index and is off by default. A node that follows a chain with SHRINCS headers SHOULD run with <code>-trim_headers</code>.
+
+===Disk===
+
+Pruning deletes block files, but the block index keeps every header witness: 34.3 GB per year with the header above. The new option <code>-prune_header_witness</code>, which needs <code>-prune</code>, also deletes the header witness of each pruned block from the block index. Such a node still validates the chain, but it can no longer serve these headers. RPC and REST report the witness as pruned, and the node disconnects a peer whose <code>getheaders</code> reaches such a header. Only a reindex brings the witnesses back.
+
+==Security Considerations==
+
+===Maturity===
+
+The SHRINCS specification is a draft. Its authors state that the scheme can still change and that its security proof is not finished. Activation should wait until the specification is stable and reviewed.
+
+===Block verification cost===
+
+The worst case per unit of budget is a stateless signature: at most 2,792 compressions for a charge of 4,443, a ratio of 0.63. A spend's budget is its witness size plus 50, while the spend weighs at least its witness plus 164 WU, so a full 4,000,000 WU block costs at most about 2.5 million compressions. The sigop limit already allows 80,000 checks at about 127 compressions each, about 10.2 million in total, so SHRINCS adds at most a quarter of that.
+
+Without the budget, a witness v0 script could copy the smallest stateful signature (<code>q = 1</code>, 256 compressions) with <code>OP_PICK</code> and verify it repeatedly. With the public key in the witness, ten <code>OP_9 OP_PICK</code> pairs copy the ten elements, and <code>MAX_OPS_PER_SCRIPT</code> = 201 allows 17 checks. That is 4,352 compressions for a 964-byte witness, or about 15.4 million per block, one and a half times the sigop limit. With the budget, that witness gets 1,014 units, each check costs 421, and the third check fails.
+
+In block context, <code>m_signblock_witness_limit</code> also bounds the work: eleven stateless signatures cost at most 30,712 compressions.
+
+==Test Vectors==
+
+The vectors test the witness encoding and the opcodes. Keys and signatures come from the SHRINCS reference implementation at the commit named in ''SHRINCS version'', and every signature verifies under the SHRINCS specification with context <code>"liquid_shrincs"</code>. Signing is deterministic.
+
+The file [[tests/test-vectors.json|test-vectors.json]] holds the keys and the three base vectors. For each vector it gives the signer, the context, the message and the witness, bottom to top and without the witness script. The message is what the signature checker supplies: a stand-in for the signature hash in transaction context, or the block hash in block context. It is given in the byte order that the opcode verifies.
+
+{| class="wikitable"
+! Vector !! Context !! Signer !! <code>q</code> !! Chunks !! Last chunk !! Script !! Result
+|-
+| 1 || transaction, witness v0, <code>SIGHASH_ALL</code> || K1, state counter 0 || 1 || 7 || 67 bytes || <code><nowiki><K1> OP_SHRINCS</nowiki></code> || valid
+|-
+| 2 || transaction, witness v0, <code>SIGHASH_ALL</code> || K1, state counter 8 || 9 || 9 || 36 bytes || <code><nowiki><K1> OP_SHRINCS</nowiki></code> || valid
+|-
+| 3 || block signature, witness v0 || K2 || 256 || 73 || 16 bytes || <code><nowiki><K2> OP_SHRINCS</nowiki></code> || valid
+|}
+
+A vector passes if its script, run on its witness under the witness script rules, gives the stated result. The result MUST be the same with and without the standard policy flags.
+
+Vector 2 is the first depth at which the leaf index takes two bytes. Vector 3 is a stateless signature in the form a block signer provides it, with no SIGHASH byte. Vector 1 is also written out below.
+
+===Keys===
+
+Each key is generated by <code>shrincs_keygen</code> from a seed of 48 bytes and an FXMSS structure of 2 bytes: a shape byte (<code>0x00</code> means unbalanced) followed by a depth byte.
+
+<pre>
+ K1  seed          3bacd7e7cc64c52f57415aef5cd4e3f0ca24c5582274bd059dfaf40cc506ba203708003b22c6810a1b7b8c5a2ecd98ad
+     sf_structure  00ff  (unbalanced, depth 255)
+     pubkey        3708003b22c6810a1b7b8c5a2ecd98addbc3a3f2c3b0ca718f2c9731bfbc55f818b8460aa7fe94db92ae703f8cd09f99
+
+ K2  seed          8d3ee3aa5211c0d0f3bb762da2bc0efc3bd416dd11eaf95052124c49cc63d7446f0816bf999ca44791543e5096189f1d
+     sf_structure  0000  (unbalanced, depth 0: stateless only)
+     pubkey        6f0816bf999ca44791543e5096189f1db6a2305d7bfe71383e9efcdba7dc45edb830a391d64d7427858bc3323aa80d4a
+
+ K3  seed          9ab8aba0b88a17bfaa47c6a97ece7192e25c19abbad3c9ef2642854fd3cb4bf4c62e48ed50be7a102b18f85dbdb04beb
+     sf_structure  0000  (unbalanced, depth 0: stateless only)
+     pubkey        c62e48ed50be7a102b18f85dbdb04beb21322d6556312133216c55fd0e1254b21574b96b95a55dce3781a04764d25632
+</pre>
+
+===Vector 1: stateful, q = 1===
+
+The smallest stateful signature. Without the indicator it is 547 bytes long, split into seven chunks, and the last chunk is 67 bytes.
+
+<pre>
+ context    transaction, witness v0, SIGHASH_ALL
+ signer     K1, state counter 0: leaf depth 1, leaf index 1
+ message    6aeb45a94b5219ddf60731be2873fd1b2ddf4f0d440c8e5cb933236da0915dd1
+ script     <K1> OP_SHRINCS
+            303708003b22c6810a1b7b8c5a2ecd98addbc3a3f2c3b0ca718f2c9731bfbc55f818b8460aa7fe94db92ae703f8cd09f99b3
+ witness, bottom to top:
+   chunk_1 5efdd61f05768041d3af251b0b6c2228010071086c12cf8627bcf8a6ad98f7001e0606f1ede2b856510963a14d1ef291da1b9a006b64121743b9a9c4ef07457e14e7b1cecf9b7efbf59c8f8bf0f66751
+   chunk_2 f593055736ef7fdbcb7725ee63b6f11949c485292e0a1854130cde56e564a89e74947e0a014a43ee521a387d938e8feb712118cba1850d3f6c2216a9abd5c035149e6a03ad10f8719173ab2962fd15bb
+   chunk_3 e3cddb453b73517b4286e077b916566abefbb1516fcc3416d6f507295ca1f12217e7297fceaa83a0b1cb020abf7218391178cdce3bad65dc4ccca84896b815ac3dcbe361f89c7d42494032d7aa47ed81
+   chunk_4 26462dceec1f21bb7f78dcbcdaf9ab1b882b42a8bafebd2ed657a8b740a1a49b09920aabbc0b60570738af82e66e0583902dce3f180f6d99babd470ed02ee99945cb20ba4e178539403af2f7bd2dab69
+   chunk_5 83b428d5e2d6e7e9766478d57318211e104b147f780db256632fdc3b473d9534b4cab59747196eba8c5ac489053abb041bdb94afaaba820e4d861dba8ef9f14756612fd9efd150b924ccf43a18afdceb
+   chunk_6 a24b59902950c70241972219f1a684b0b0e6d2c8645761aec0e130323671bdac318636aca26ed78dd83c75d8180cfaf7519ca64d555fe111445cb204999906c95d5f9b85325e95da3a51e1cbeca4a255
+   chunk_7 c5c83926e7c5114ae14bd8dac9a81c471a57b757754a0102e12873a9d9b243774f06b7c01457c9db761a011a9853fbc664962e7699fb7c10a643d2ec692d149c73512c
+   sighash  01
+   q        01
+ result     valid
+</pre>
+
+===Derived vectors===
+
+Each vector below changes one thing in vector 1 or 2 and keeps everything else, including the context unless the table says otherwise. All of them fail.
+
+{| class="wikitable"
+! Base !! Change !! Result
+|-
+| 1 || Script pushes only the first 47 bytes of K1 || <code>SCRIPT_ERR_PUBKEYTYPE</code>
+|-
+| 1 || <code>q</code> = <code>0100</code> || <code>SCRIPT_ERR_MINIMALDATA</code>
+|-
+| 1 || <code>q</code> = <code>000001</code> (65536) || <code>SCRIPT_ERR_MINIMALDATA</code>
+|-
+| 1 || <code>q</code> = <code>0101</code> (257) || <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>
+|-
+| 1 || <code>q</code> = <code>81</code> (-1) || <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>
+|-
+| 1 || SIGHASH byte <code>00</code> || <code>SCRIPT_ERR_SHRINCS_SIG_HASHTYPE</code>
+|-
+| 1 || SIGHASH element empty, or <code>0101</code> || <code>SCRIPT_ERR_SHRINCS_SIG_HASHTYPE</code>
+|-
+| 1 || SIGHASH byte <code>41</code>, in tapscript with <code>SCRIPT_SIGHASH_RANGEPROOF</code> set || <code>SCRIPT_ERR_SHRINCS_SIG_HASHTYPE</code>
+|-
+| 1 || Script run as a P2SH redeem script, with the witness elements pushed by <code>scriptSig</code> || <code>SCRIPT_ERR_BAD_OPCODE</code>
+|-
+| 1 || Last byte of <code>chunk_7</code> removed || <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>
+|-
+| 1 || Every cut moved one byte earlier: <code>chunk_1</code> is 79 bytes and <code>chunk_7</code> 68 || <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>
+|-
+| 1 || Last byte of <code>chunk_1</code> moved to the front of <code>chunk_2</code>: 79 and 81 bytes || <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>
+|-
+| 1 || <code>chunk_1</code> removed || <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>
+|-
+| 1 || Every element below <code>q</code> removed || <code>SCRIPT_ERR_INVALID_STACK_OPERATION</code>
+|-
+| 1 || Indicator <code>fe</code> prepended to <code>chunk_1</code> and the whole cut again every 80 bytes || <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>
+|-
+| 1 || Byte 19 of <code>chunk_2</code> XORed with <code>01</code> || <code>SCRIPT_ERR_SIG_NULLFAIL</code>
+|-
+| 1 || SIGHASH byte removed, in block context || <code>SCRIPT_ERR_SIG_NULLFAIL</code>
+|-
+| 2 || <code>q</code> = <code>08</code>: also nine chunks, but a last chunk of 19 bytes || <code>SCRIPT_ERR_SHRINCS_SIG_SIZE</code>
+|}
+
+Vector 1 stays valid when its P2WSH program is wrapped in P2SH. The script then still runs as witness v0.
+
+The next vectors reuse the witnesses above under other scripts. <code>W1</code> stands for the nine elements of vector 1, <code>W3</code> for the 74 elements of vector 3, and <code>[]</code> for an empty element.
+
+{| class="wikitable"
+! Script !! Witness, bottom to top !! Script version !! Result
+|-
+| <code><nowiki><K2> OP_SHRINCS OP_NOT</nowiki></code> || <code>[]</code> || tapscript || valid
+|-
+| <code><nowiki><K2> OP_SHRINCS OP_NOT</nowiki></code> || <code>[]</code> || witness v0 || valid: a slot with <code>q = 0</code> is not charged
+|-
+| <code><nowiki><K1> OP_SHRINCS <K2> OP_SHRINCSADD <K3> OP_SHRINCSADD OP_1 OP_NUMEQUAL</nowiki></code> || <code>[] [] W1</code> || witness v0 || valid
+|-
+| <code><nowiki><K2> OP_SHRINCS <K3> OP_SHRINCSADD <K1> OP_SHRINCSADD OP_1 OP_NUMEQUAL</nowiki></code> || <code>W1 [] []</code> || witness v0 || valid
+|-
+| <code><nowiki><K2> OP_SHRINCS <K3> OP_SHRINCSADD <K1> OP_SHRINCSADD OP_1 OP_NUMEQUAL</nowiki></code> || <code>[] [] W1</code> || witness v0 || <code>SCRIPT_ERR_SIG_NULLFAIL</code>
+|-
+| <code><nowiki><K1> OP_SHRINCS <K2> OP_SHRINCSADD <K3> OP_SHRINCSADD OP_1 OP_NUMEQUAL</nowiki></code> || <code>[] 00 W1</code> or <code>[] 80 W1</code> || witness v0 || <code>SCRIPT_ERR_MINIMALDATA</code>
+|-
+| <code><nowiki><0101010101> <K1> OP_SHRINCSADD</nowiki></code> || <code>W1</code> || witness v0 || <code>SCRIPT_ERR_UNKNOWN_ERROR</code>: an accumulator of 5 bytes
+|-
+| <code><nowiki>OP_8 OP_PICK (nine times) <K1> OP_SHRINCS OP_VERIFY <K1> OP_SHRINCS</nowiki></code> || <code>W1</code> || witness v0 || <code>SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT</code>: a budget of 729, two charges of 421
+|-
+| <code><nowiki><110 zero bytes> OP_DROP</nowiki></code>, then the script of the row above || <code>W1</code> || witness v0 || valid: a budget of 842, two charges of 421
+|-
+| <code><nowiki><109 zero bytes> OP_DROP</nowiki></code>, then the same script || <code>W1</code> || witness v0 || <code>SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT</code>: a budget of 841
+|-
+| <code><nowiki>OP_8 OP_PICK (nine times) <K1> OP_SHRINCS OP_VERIFY <K1> OP_SHRINCS</nowiki></code> || <code>W1</code> || tapscript || <code>SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT</code>: a budget of 763, two charges of 421
+|-
+| <code><nowiki><73> OP_PICK (74 times) <K2> OP_SHRINCS OP_VERIFY <K2> OP_SHRINCS</nowiki></code> || <code>W3</code> || witness v0, block context || <code>SCRIPT_ERR_TAPSCRIPT_VALIDATION_WEIGHT</code>: a budget of 6,229, two charges of 4,443
+|}
+
+The block context vector uses the message of vector 3. The others use the message of vector 1 where they verify a signature. In witness v0 the budget is the serialized size of the witness and the script, plus 50. The tapscript budget assumes a tree with a single leaf, so it also counts a control block of 33 bytes.
+
+==Reference Implementation==
+
+The reference implementation is the branch <code>feature/sync_shrincs_with_elements_29x</code> of [https://github.com/ElementsProject/elements-pq/tree/feature/sync_shrincs_with_elements_29x ElementsProject/elements-pq].
+
+==Acknowledgements==
+
+This ELIP builds on the SHRINCS specification and on the work of its authors.
+
+==References==
+* '''SHRINCS specification:''' [https://github.com/SHRINCS/shrincs-bip https://github.com/SHRINCS/shrincs-bip]
+* '''SHRINCS in Bitcoin tapscript (leaf version 0xC2):''' [https://github.com/SHRINCS/shrincs-bip/blob/main/leaf-version-0xC2.mediawiki leaf-version-0xC2.mediawiki]
+* '''SHRINCS Simplicity verifier:''' [https://github.com/BlockstreamResearch/shrincs-simplicity-verifier/tree/optimize_fors/bip https://github.com/BlockstreamResearch/shrincs-simplicity-verifier/tree/optimize_fors/bip]
+* '''FIPS 205 (SLH-DSA):''' [https://csrc.nist.gov/pubs/fips/205/final https://csrc.nist.gov/pubs/fips/205/final]
+* '''BIP-9 (Version bits):''' [https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki bip-0009.mediawiki]
+* '''BIP-141 (Segregated Witness):''' [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki bip-0141.mediawiki]
+* '''BIP-143 (Segwit v0 signature hash):''' [https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki bip-0143.mediawiki]
+* '''BIP-339 (WTXID-based transaction relay):''' [https://github.com/bitcoin/bips/blob/master/bip-0339.mediawiki bip-0339.mediawiki]
+* '''BIP-341 (Taproot):''' [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki bip-0341.mediawiki]
+* '''BIP-342 (Validation of Taproot Scripts):''' [https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki bip-0342.mediawiki]
+* '''BIP-360 (Pay-to-Merkle-Root):''' [https://github.com/bitcoin/bips/blob/master/bip-0360.mediawiki bip-0360.mediawiki]
+* '''Elements taproot signature hash:''' [https://github.com/ElementsProject/elements/blob/master/doc/taproot-sighash.mediawiki taproot-sighash.mediawiki]
+* '''Elements block header format:''' [https://github.com/ElementsProject/elements/blob/master/doc/elements-block-header-format.md elements-block-header-format.md]
