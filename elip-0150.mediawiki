@@ -51,6 +51,12 @@ Here <code>DESCRIPTOR</code> refers to any existing descriptor, e.g. <code>elwsh
 
 In the <code><KEY></code> expression, all key(s) must be compressed; x-only and uncompressed keys are invalid.
 
+The <code><KEY></code> expression must resolve to exactly one key. It must therefore not contain a wildcard (<code>/*</code>) or a multipath (e.g. <code>/<0;1>/</code>) element, nor any future path element which resolves to more than one key. A fixed derivation path of unhardened elements (e.g. <code>/0/1</code>) is permitted.
+
+Hardened path elements (e.g. <code>/0h</code>) are also not permitted, because they cannot be derived from an extended public key. Were they allowed, a descriptor whose blinding key is an xprv would no longer generate the same addresses as the otherwise identical descriptor whose blinding key is the corresponding xpub, contrary to the equivalence illustrated by the view and non-view descriptor pairs in the test vectors below.
+
+These constraints govern only how the blinding key itself is obtained. The resulting key is still tweaked per output, as described below, so each address does have its own distinct blinding key.
+
 It is permissible, and likely to be common, for a <code><KEY></code> key to be a private key (e.g. an xprv) even if the keys in the actual descriptor are public keys.
 Such a descriptor is termed a '''view descriptor''', and the blinding private key a '''view key'''.
 
@@ -138,6 +144,55 @@ The following CT descriptors should be parseable and generate the given addresse
 ** Confidential address: <code>lq1qqwkeuelr466ue5u8e0lz3a27q4yk93qnupry5h3q4h9pjpf8vrrzvknpl78t02k2xqgdh9ltmfmpy9ssk7qfvwt93dvuvssha</code>
 ** Unconfidential address: <code>ex1qtfsllr4h4t9rqyxmjl4a5asjzcgt0qyktcafre</code>
 
+The following demonstrates a multi-key <code>DESCRIPTOR</code> (a 2-of-3 multisig using index-derivable keys), which is expected to be the common case for wallets in practice. Multiple addresses, at different derivation indices, are given:
+
+* Valid Descriptor 11: <code>ct(slip77(df7fe47acf54f647a1ecaa1523234994d7119185c25baf2ace7b0d732c7d5305),elwsh(multi(2,xpub6C2bN9wR9J68711stm7GeLGimyYNuwJJZzTyW36jTUWwtvDaXM99pn4Cksh84NM36r3MJktfqN3pxVHfCCwe3Ce59NN56N2bYTBDrtpiFtQ/0/*,xpub6C2zxuidBM4RCvwQAU55pojqE43qaumGQydZ8e1rfj1yH1Tdss2GdHxjKzKwuTKjkMRSK87FwRGc5sahfaf2ZiqsdVe6kiXuc1NDzWnyx2c/0/*,xpub6DUh8rDhdNMaq2tFN8H6tzc95RsS4PShSHcg5YmPz9mCi5hMhS4gqvUyM2shxz6wfKhTUHiP21Tgs7QGmDhhEAg8TPdpmAYctTKTRPn4FT1/0/*)))#ztzqum28</code>
+** SLIP77 master blinding key: <code>df7fe47acf54f647a1ecaa1523234994d7119185c25baf2ace7b0d732c7d5305</code>
+** At index 0:
+*** scriptPubKey: <code>00202a8a973842b0f84e28ed55e1625b77c5765ccd4b03b86f0dfaffbbb153ad642e</code>
+*** Confidential address: <code>lq1qqdcfjuf8q2uwgjrglewrpw8g4h72crxhuj4c9qgykyzhvzee8juhq252juuy9v8cfc5w640pvfdh03tktnx5kqacduxl4lamk9f66epwj78mrmumgak7</code>
+*** Unconfidential address: <code>ex1q929fwwzzkruyu28d2hskykmhc4m9en2tqwux7r06l7amz5advshqajz2dg</code>
+** At index 1:
+*** scriptPubKey: <code>0020792aae388663711f700642a4de120c5ef438c80e3e4e662e871277fdded7439f</code>
+*** Confidential address: <code>lq1qq0sl3wlghq0ekhgswvz329gudf05splg8grv94u4qhkug8cjt5w467f24cugvcm3racqvs4ymcfqchh58ryqu0jwvchgwynhlh0dwsul0aavnf9y0ltd</code>
+*** Unconfidential address: <code>ex1q0y42uwyxvdc37uqxg2jduysvtm6r3jqw8e8xvt58zfmlmhkhgw0sxz2qmk</code>
+** At index 5:
+*** scriptPubKey: <code>0020641b6ebfe12b55858e2e529a755cc204a50c284485e9a54b92d0cd67b3d5199a</code>
+*** Confidential address: <code>lq1qq2qv4ekf265fcr3wzmlxg3zaxsp79c9r373egh9x7h56v8chlm4eqeqmd6l7z264sk8zu556w4wvyp99ps5yfp0f549e95xdv7ea2xv645tv7ru9j9km</code>
+*** Unconfidential address: <code>ex1qvsdka0lp9d2ctr3w22d82hxzqjjsc2zysh562juj6rxk0v74rxdq2qmc5n</code>
+
+The following is the same 2-of-3 multisig but using BIP389 multipath key expressions (<code>KEY/<0;1>/*</code>) to derive both the receive (external, path element 0) and change (internal, path element 1) branches from a single descriptor:
+
+* Valid Descriptor 12: <code>ct(slip77(df7fe47acf54f647a1ecaa1523234994d7119185c25baf2ace7b0d732c7d5305),elwsh(multi(2,xpub6C2bN9wR9J68711stm7GeLGimyYNuwJJZzTyW36jTUWwtvDaXM99pn4Cksh84NM36r3MJktfqN3pxVHfCCwe3Ce59NN56N2bYTBDrtpiFtQ/<0;1>/*,xpub6C2zxuidBM4RCvwQAU55pojqE43qaumGQydZ8e1rfj1yH1Tdss2GdHxjKzKwuTKjkMRSK87FwRGc5sahfaf2ZiqsdVe6kiXuc1NDzWnyx2c/<0;1>/*,xpub6DUh8rDhdNMaq2tFN8H6tzc95RsS4PShSHcg5YmPz9mCi5hMhS4gqvUyM2shxz6wfKhTUHiP21Tgs7QGmDhhEAg8TPdpmAYctTKTRPn4FT1/<0;1>/*)))#swks52q0</code>
+** SLIP77 master blinding key: <code>df7fe47acf54f647a1ecaa1523234994d7119185c25baf2ace7b0d732c7d5305</code>
+** External (path element 0), index 0:
+*** scriptPubKey: <code>00202a8a973842b0f84e28ed55e1625b77c5765ccd4b03b86f0dfaffbbb153ad642e</code>
+*** Confidential address: <code>lq1qqdcfjuf8q2uwgjrglewrpw8g4h72crxhuj4c9qgykyzhvzee8juhq252juuy9v8cfc5w640pvfdh03tktnx5kqacduxl4lamk9f66epwj78mrmumgak7</code>
+*** Unconfidential address: <code>ex1q929fwwzzkruyu28d2hskykmhc4m9en2tqwux7r06l7amz5advshqajz2dg</code>
+** Internal (path element 1), index 0:
+*** scriptPubKey: <code>00204733438c7ba1a4458c6ab870244d656e99dafcc1f33fe77c8f15bdda48f0c9fc</code>
+*** Confidential address: <code>lq1qqtpgzvy7uampjd7d8cl46uv46d99x9nfu4xdyaxj0uryfdn0yq7a73engwx8hgdygkxx4wrsy3xk2m5emt7vruelua7g79damfy0pj0uuj6tsd93qqxa</code>
+*** Unconfidential address: <code>ex1qgue58rrm5xjytrr2hpczgnt9d6va4lxp7vl7wly0zk7a5j8se87qfay6a5</code>
+** Internal (path element 1), index 1:
+*** scriptPubKey: <code>00201f5b992b516eb64a03dc054ed016c06b720b54a93aff4511cd8b8629bcf89535</code>
+*** Confidential address: <code>lq1qq0cskv762nyet7tvw0gd8pcvgxddhmwu3tlw239p6x4c3xpud4hcc86mny44zm4kfgpacp2w6qtvq6mjpd22jwhlg5gumzux9x7039f4ner9v0dasc7t</code>
+*** Unconfidential address: <code>ex1qradej263d6my5q7uq48dq9kqddeqk49f8tl52ywd3wrzn08cj56s2sd58z</code>
+
+Note that the external branch (path element 0) of Valid Descriptor 12 derives the same keys, and therefore the same addresses, as Valid Descriptor 11, since <code>KEY/<0;1>/*</code> at path element 0 is equivalent to <code>KEY/0/*</code>.
+
+The following has a blinding key with a fixed, unhardened derivation path, which is permitted since it resolves to exactly one key. The wrapped <code>DESCRIPTOR</code> uses a wildcard, so the single blinding key is reused, tweaked per output, across every address:
+
+* Valid Descriptor 13: <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0/1,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/0/*))#hk9ez6pv</code>
+** Descriptor blinding public key: <code>xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0/1</code>
+** At index 0:
+*** scriptPubKey: <code>00146a998574ae3dd98715ad88047c9e24dde609aaa4</code>
+*** Confidential address: <code>lq1qqw53c536p9qamf7m4cgpma6vd8ue2l7meyswpse6jfwvq329lmw9u65es462u0wesu26mzqy0j0zfh0xpx42gx48fxvwe7rnm</code>
+*** Unconfidential address: <code>ex1qd2vc2a9w8hvcw9dd3qz8e83ymhnqn24y9zaw28</code>
+** At index 1:
+*** scriptPubKey: <code>0014ccf274de6e454e9a1e3984da54283b4a9ff1039c</code>
+*** Confidential address: <code>lq1qq2lh0ddxkvhe2yr2vfttd7yw6rxmzlx46wejse9vtuff7qgtkpycrn8jwn0xu32wng0rnpx62s5rkj5l7ypecwdsc27n2ycet</code>
+*** Unconfidential address: <code>ex1qene8fhnwg48f583esnd9g2pmf20lzquu5l4mwd</code>
+
 This one is a "view descriptor" which has a private blinding key but otherwise public keys:
 
 * View Descriptor: <code>ct(xprv9s21ZrQH143K28NgQ7bHCF61hy9VzwquBZvpzTwXLsbmQLRJ6iV9k2hUBRt5qzmBaSpeMj5LdcsHaXJvM7iFEivPryRcL8irN7Na9p65UUb,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#j95xktq7</code>
@@ -186,6 +241,15 @@ Finally, the following are invalid test vectors that should not be parseable:
 * Invalid Descriptor 7
 ** <code>ct(L3jXxwef3fpB7hcrFozcWgHeJCPSAFiZ1Ji2YJMPxceaGvy3PC1q,elwpkh(03774eec7a3d550d18e9f89414152025b3b0ad6a342b19481f702d843cff06dfc4))#gcy6hcfz</code>
 ** Reason: single private key is WIF, not hex
+* Invalid Descriptor 8
+** <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0/*,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#t8tpvh0m</code>
+** Reason: blinding key expression must not contain a wildcard, as it does not resolve to exactly one key
+* Invalid Descriptor 9
+** <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0h,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#4x4mgatw</code>
+** Reason: blinding key expression must not contain a hardened path element, as it cannot be derived from an extended public key
+* Invalid Descriptor 10
+** <code>ct(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/<0;1>/*,elwpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH))#ll6lns58</code>
+** Reason: blinding key expression must not contain a multipath element, as it does not resolve to exactly one key
 
 ==Acknowledgements==
 
