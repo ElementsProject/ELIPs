@@ -1,0 +1,590 @@
+<pre>
+  ELIP: ?
+  Layer: Consensus (hard fork)
+  Title: Hybrid Key Exchange for Confidential Transactions
+  Author: Yevhen Hrubiian <yhrubiian@blockstream.com>
+          Mykyta Redko <mredko@blockstream.com>
+          Viktoriia Balatska <vbalatska@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-08-20
+  License: BSD-2-Clause
+  Requires: 222
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+The Confidential Assets extension of Confidential Transactions (CT) on Liquid hides the amount and asset of blinded outputs from a third-party observer.
+However, the legitimate recipient of the output still learns this information through some form of encryption protocol: the sender performs an Elliptic Curve Diffie-Hellman key exchange (ECDH) between its ephemeral key and the recipient's blinding key, the shared secret is then used to derive the output's range proof seed, which in turn piggybacks the encrypted amount and asset.
+An attacker with a cryptographically relevant quantum computer (CRQC) can solve the discrete logarithm problem and thus break ECDH with Shor's algorithm.
+Given both public keys, they can retroactively recover the amount and asset of confidential outputs recorded today, threatening users' privacy.
+New proposal of [https://github.com/ElementsProject/ELIPs/pull/46 Hybrid Key Encapsulation] (HKE) replaces this ECDH with a key encapsulation that combines it with the post-quantum KEM <code>ML-KEM-768</code>.
+This document specifies an application of the proposed HKE for safeguarding the privacy of outputs on Liquid: new HKE outputs, the corresponding consensus rules, changes of transaction structure, and new confidential address format.
+
+===Copyright===
+
+This document and its reference code are licensed under the BSD-2-Clause License.
+
+===Motivation===
+
+Today a sender paying a confidential address picks an ephemeral key <code>e</code>, publishes <code>E = e*G</code> in the output's <code>nNonce</code> field, and derives a range-proof seed from the ECDH of <code>e</code> and the recipient's blinding key <code>B</code>.
+The recipient recomputes the seed from <code>E</code> and its blinding private key <code>b</code>, rewinds the range proof, and recovers the amount, the asset and both blinding factors.
+
+An adversary with a cryptographically relevant quantum computer (CRQC) can therefore compute the seed of any output with an exposed blinding key <code>B</code>, including outputs recorded long before the CRQC existed (''harvest-now-decrypt-later'' attack).
+
+The [https://github.com/ElementsProject/ELIPs/pull/46 HKE] protocol protects the range-proof seed against this attack by replacing the classical key exchange with a hybrid quantum-resistant key encapsulation.
+This document specifies HKE deployment on Liquid.
+Specifically, it introduces new ''HKE outputs'' and ''HKE confidential addresses'' along with new consensus rules and wallet requirements accompanying them.
+We note that this proposal protects only the ''confidentiality'' of outputs against quantum attackers.
+It does not address two other attacks that a CRQC enables: inflation, since a CRQC breaks the binding of Pedersen commitments, and individual theft, since it can forge the ECDSA and Schnorr signatures that authorize UTXOs spending.
+
+==Description==
+
+A payment to an HKE confidential address proceeds as follows:
+
+# The recipient derives <code>msk</code> for its scriptPubKey from its master blinding key <code>mbk</code>, and publishes the scriptPubKey with the HKE public key <code>(B_bytes, ek)</code> as an HKE confidential address: <code>B_bytes</code> is the compressed blinding public key and <code>ek</code> is the ML-KEM-768 public encapsulation key.
+# The sender decodes the address, runs <code>HKE.Encaps(B_bytes, ek)</code> to obtain <code>K</code> and the ciphertext <code>(E_bytes, c)</code>, uses <code>K</code> as the seed of the output's range proof, and writes the ciphertext into the output's <code>nNonce</code> using the encoding below. <code>E_bytes</code> is the sender's compressed ephemeral public key and <code>c</code> is the ML-KEM-768 ciphertext.
+# The recipient finds the output by its scriptPubKey, extracts <code>(E_bytes, c)</code> from <code>nNonce</code>, computes <code>K := HKE.Decaps((E_bytes, c), msk)</code> with the <code>msk</code> of that scriptPubKey, and rewinds the range proof with the seed <code>K</code> to recover the amount, the asset and both blinding factors.
+
+The range-proof logic does not change: <code>secp256k1_rangeproof_sign</code> and <code>secp256k1_rangeproof_rewind</code> ([https://github.com/BlockstreamResearch/secp256k1-zkp secp256k1-zkp]) take the 32-byte seed as their <code>nonce</code> argument for classical and HKE outputs alike.
+Outputs with a classical nonce remain valid and keep the classical seed derivation.
+Range proofs in issuances, for the issued amount and for the reissuance tokens, are unaffected: their seed is a blinding private key of the issuer itself, whose public key the transaction does not contain, so there is no key exchange to harvest.
+
+This document makes the following changes, by layer:
+
+{| class="wikitable"
+|-
+! Layer
+! Object
+! Liquid today
+! This proposal
+|-
+| Consensus
+| [[#hke-nonce-encoding|<code>CTxOut.nNonce</code>]]
+| null, explicit, or classical nonce <code>E</code> (33 B, prefix <code>0x02</code>/<code>0x03</code>)
+| for HKE outputs the nonce is <code>prefix || x(E) || c</code> (1121 B, prefix <code>0x04</code>/<code>0x05</code>)
+|-
+| Consensus
+| [[#output-validity|Output validity]]
+| —
+| an output with an explicit value must not have an HKE nonce
+|-
+| Consensus
+| [[#script-introspection|<code>OP_INSPECTOUTPUTNONCE</code>]]
+| pushes <code>cbytes(E)</code>
+| pushes <code>cbytes(E)</code> for an HKE nonce, so Script cannot see <code>c</code>
+|-
+| Consensus
+| [[#simplicity|Simplicity environment]]
+| 33-byte nonce in <code>rawElementsOutput</code>, hashed as is
+| full nonce; an HKE nonce is hashed as <code>prefix || x(E) || SHA256(c)</code>
+|-
+| Consensus
+| [[#simplicity|Simplicity jets]]
+| <code>output_nonce</code> returns the nonce
+| <code>output_nonce</code> returns <code>E</code> for an HKE nonce
+|-
+| Relay policy
+| [[#relay-policy|Discounted-CT fee]]
+| a classical nonce is charged as the 1-byte null nonce
+| an HKE nonce is charged as the 1-byte null nonce
+|-
+| Wallet
+| [[#hke-confidential-address|Address]]
+| <code>witver || B_bytes || program</code> in <code>blech32</code>/<code>blech32m</code>, or Base58 for P2PKH and P2SH
+| new HKE confidential address <code>hke_version || witver || B_bytes || ek || program</code> in base32 with CRC-32, native segwit only
+|-
+| Wallet
+| [[#key-derivation|Key derivation]]
+| blinding key <code>HMAC-SHA256(mbk, scriptPubKey)</code> ([https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77])
+| additionally <code>msk := HMAC-SHA256(H_mbk(mbk), scriptPubKey)</code> and <code>(b, dk, B, ek) := expandDecapsulationKey(msk)</code>, independent of the SLIP-77 key
+|-
+| Wallet
+| [[#key-establishment|Key establishment]]
+| sender: <code>E := e*G, K := ECDH(e, B)</code>, recipient: <code>K := ECDH(b, E)</code>
+| sender: <code>(K, (E_bytes, c)) := HKE.Encaps(B_bytes, ek)</code>, recipient: <code>K := HKE.Decaps((E_bytes, c), msk)</code> ([https://github.com/ElementsProject/ELIPs/pull/46 HKE])
+|-
+| Implementation
+| [[#implementation-requirements|Implementation requirements]]
+| —
+| mempool and coin-cache memory accounting includes the larger <code>nNonce</code>
+|}
+
+==Specification==
+
+===Notation===
+
+* <code>HKE.Encaps</code>, <code>HKE.Decaps</code>, <code>expandDecapsulationKey</code>, <code>msk</code>, <code>cbytes</code>, <code>lift</code>, <code>KEM.CheckEK</code>, <code>L_c</code>, <code>L_ek</code> and the tagged hashes <code>H_t</code> and <code>H_seed</code> are as defined in [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222]. For <code>ML-KEM-768</code>, <code>L_c = 1088</code> and <code>L_ek = 1184</code>.
+* <code>B</code> is the recipient's blinding public point and <code>E</code> is the sender's ephemeral public point on <code>secp256k1</code>. <code>B_bytes = cbytes(B)</code> and <code>E_bytes = cbytes(E)</code> are their 33-byte compressed encodings.
+* A ''classical nonce'' is an <code>nNonce</code> value with prefix <code>0x02</code> or <code>0x03</code> (33 bytes). An ''HKE nonce'' is an <code>nNonce</code> value with prefix <code>0x04</code> or <code>0x05</code> (1121 bytes). An ''HKE output'' is an output with an HKE nonce. An ''HKE placeholder'' is an <code>nNonce</code> value with prefix <code>0x06</code> or <code>0x07</code> (1217 bytes); it appears only in unblinded transactions.
+* An ''HKE confidential address'' is the address type defined in [[#hke-confidential-address|HKE confidential address]]. Only its blinding keys are HKE keys; the scriptPubKey it pays to, and the signatures that spend from it, are unchanged.
+* Weight is measured in weight units (WU); one virtual byte (vB) is 4 WU.
+* Elements classes, functions and files named in this document refer to Elements at commit [https://github.com/ElementsProject/elements/tree/7110a84bb1 <code>7110a84bb1</code>].
+
+===Consensus===
+
+<span id="hke-nonce-encoding"></span>
+====HKE nonce encoding====
+
+The output's <code>nNonce</code> carries the public data the recipient needs to recover the range-proof seed.
+For a classical output this is the sender's ephemeral public key <code>E_bytes</code>.
+For an HKE output it is the HKE ciphertext <code>(E_bytes, c)</code>, where <code>c</code> is the 1088-byte ML-KEM-768 ciphertext produced by the sender's encapsulation.
+The recipient combines these two components with its secret <code>msk</code> to recover the shared seed <code>K</code>; the amount, asset and blinding factors are recovered from the range proof using <code>K</code>.
+
+Before blinding, Elements also uses <code>nNonce</code> to carry the recipient's public key to the blinder.
+For an HKE confidential address this requires a temporary ''placeholder'' containing <code>(B_bytes, ek)</code>, where <code>ek</code> is the recipient's 1184-byte ML-KEM-768 public encapsulation key, taken from the address together with <code>B_bytes</code>.
+The blinder runs <code>HKE.Encaps(B_bytes, ek)</code> and replaces this placeholder with the resulting ciphertext <code>(E_bytes, c)</code> in the HKE nonce encoding.
+A placeholder is only for exchanging unblinded transactions; it MUST NOT appear in a block or the mempool.
+
+<code>CConfidentialNonce</code> currently inherits <code>CConfidentialCommitment<33, 2, 3></code>, whose parser accepts only prefixes <code>0x00</code> through <code>0x03</code>.
+This document adds <code>0x04</code> / <code>0x05</code> for the HKE ciphertext and <code>0x06</code> / <code>0x07</code> for the placeholder.
+Each prefix determines the exact payload length, without a length field:
+
+{| class="wikitable"
+|-
+! style="text-align: right;"| Prefix
+! Payload
+! style="text-align: right;"| Total
+! Meaning
+|-
+| style="text-align: right;"| <code>0x00</code>
+| —
+| style="text-align: right;"| 1 B
+| null
+|-
+| style="text-align: right;"| <code>0x01</code>
+| 32 B
+| style="text-align: right;"| 33 B
+| explicit nonce data (existing encoding)
+|-
+| style="text-align: right;"| <code>0x02</code> / <code>0x03</code>
+| <code>x(E)</code>
+| style="text-align: right;"| 33 B
+| classical nonce, even / odd <code>Y</code>
+|-
+| style="text-align: right;"| <code>0x04</code> / <code>0x05</code>
+| <code>x(E) || c</code>
+| style="text-align: right;"| 1121 B
+| HKE nonce, even / odd <code>Y</code>, HKE v1 / <code>ML-KEM-768</code>
+|-
+| style="text-align: right;"| <code>0x06</code> / <code>0x07</code>
+| <code>x(B) || ek</code>
+| style="text-align: right;"| 1217 B
+| HKE placeholder, even / odd <code>Y</code>, HKE v1 / <code>ML-KEM-768</code>
+|}
+
+<code>x(E)</code> and <code>x(B)</code> are the respective points' 32-byte big-endian <code>X</code> coordinates.
+Within each prefix pair, the first prefix denotes an even <code>Y</code> coordinate and the second an odd one.
+For an HKE nonce, recover <code>E_bytes</code> as <code>(prefix - 2) || x(E)</code> and read the remaining <code>L_c</code> bytes as <code>c</code>.
+For a placeholder, recover <code>B_bytes</code> as <code>(prefix - 4) || x(B)</code> and read the remaining <code>L_ek</code> bytes as <code>ek</code>.
+In both expressions the adjusted prefix is one byte, <code>0x02</code> or <code>0x03</code>.
+
+These assignments do not replace any accepted <code>nNonce</code> encoding: existing nodes reject all four new prefixes during deserialization, which is why deployment requires a hard fork.
+The extension MUST be specific to <code>CConfidentialNonce</code>; the shared <code>CConfidentialCommitment</code> parser's accepted encodings for <code>CConfidentialValue</code> and <code>CConfidentialAsset</code> remain unchanged, including their commitment prefixes <code>0x08</code> / <code>0x09</code> and <code>0x0a</code> / <code>0x0b</code>, respectively.
+
+The nonce parser and predicates change as follows:
+
+# <code>CConfidentialNonce::Unserialize</code> accepts prefixes <code>0x04</code> and <code>0x05</code> and reads <code>L_c + 32</code> further bytes, and prefixes <code>0x06</code> and <code>0x07</code> and reads <code>L_ek + 32</code> further bytes. Any other unrecognized prefix still raises a deserialization error.
+# A predicate <code>IsHKE()</code> is added, true exactly for a 1121-byte value with prefix <code>0x04</code> or <code>0x05</code>, and a predicate <code>IsHKEPlaceholder()</code>, true exactly for a 1217-byte value with prefix <code>0x06</code> or <code>0x07</code>. <code>IsValid()</code> becomes <code>IsNull() || IsExplicit() || IsCommitment() || IsHKE()</code>. It does not include <code>IsHKEPlaceholder()</code>; rejection is enforced for every output as specified in [[#output-validity|Output validity]]. <code>IsCommitment()</code> keeps its present meaning: exactly 33 bytes with prefix <code>0x02</code> or <code>0x03</code>. Code that uses it to identify a nonce for blinding, unblinding, PSET conversion or fee calculation MUST handle the new forms explicitly.
+
+These predicates check the prefix and length only.
+Consensus does not check that the encoded point is on the curve or that the ciphertext lets the intended recipient recover the range-proof seed, just as it does not check recoverability for classical outputs.
+Wallets perform the point and KEM checks required by [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222] when encapsulating or decapsulating.
+
+The weight rules are unchanged: an HKE nonce is base data and weighs <code>1121 * 4 = 4484</code> WU, which is 4352 WU (1088 vB) more than a classical nonce.
+
+The prefixes <code>0x04</code> to <code>0x07</code> are specific to <code>ML-KEM-768</code>: they fix <code>L_c</code>, <code>L_ek</code> and the <code>H_seed</code> tag of [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222].
+Using another KEM would require new prefixes, and thus another hard fork, since nodes reject unknown prefixes.
+
+<span id="output-validity"></span>
+====Output validity====
+
+A node MUST check every output, including coinbase outputs, and reject the transaction if either of the following holds:
+
+* The output carries an HKE placeholder, at any height.
+* The output carries an HKE nonce together with an explicit value ([[#cost-of-the-hke-nonce|Cost of the HKE nonce]]).
+
+In Elements these checks belong in context-free transaction validation (<code>CheckTransaction</code>).
+Relying only on the nonce check in <code>VerifyAmounts</code> would miss coinbase outputs, because that function only checks non-coinbase transactions.
+Since coinbase outputs have explicit values, a coinbase output cannot carry an HKE nonce.
+
+<span id="script-introspection"></span>
+====Script introspection====
+
+<code>OP_INSPECTOUTPUTNONCE</code> MUST push the classical form <code>cbytes(E)</code> when the inspected output carries an HKE nonce, and is otherwise unchanged.
+
+A script can therefore constrain <code>E</code>, but cannot distinguish an HKE nonce from a classical nonce with the same <code>E</code> or constrain <code>c</code> through this opcode.
+Reconstructing a complete output from the classical projection does not reproduce an HKE output's serialization.
+
+<span id="simplicity"></span>
+====Simplicity====
+
+The Elements Simplicity environment passes an output's nonce as a pointer to exactly 33 bytes (<code>rawElementsOutput.nonce</code> in [https://github.com/BlockstreamResearch/simplicity/blob/master/C/include/simplicity/elements/env.h <code>env.h</code>]) and classifies its prefix by the lowest bit.
+Unchanged, it would read an HKE nonce as a classical point with <code>x(E)</code>, and <code>c</code> would enter neither <code>output_nonces_hash</code> nor, through <code>outputs_hash</code> and the transaction hash, <code>sig_all_hash</code>.
+A third party could then replace <code>c</code> in a transaction spent through Simplicity without invalidating its signatures.
+
+The environment MUST therefore change as follows:
+
+# '''Raw environment.''' <code>rawElementsOutput</code> carries the full nonce, including <code>c</code>.
+# '''Nonce hashing.''' Wherever an output's nonce enters a hash (<code>output_nonces_hash</code> and <code>output_hash</code>, and through them <code>outputs_hash</code> and <code>sig_all_hash</code>), an HKE nonce contributes <code>prefix || x(E) || SHA256(c)</code>, where <code>prefix</code> is <code>0x04</code> or <code>0x05</code>. Null, explicit and classical nonces contribute what they contribute today.
+# '''<code>output_nonce</code>.''' For an HKE nonce, this jet returns the classical point <code>E</code>, as <code>OP_INSPECTOUTPUTNONCE</code> does ([[#script-introspection|Script introspection]]).
+
+These rules must be adopted by the Simplicity specification and its implementation before <code>H</code>.
+That amendment must also establish the compatibility of existing program commitments and provide transaction-hash vectors for classical and HKE nonces.
+See [[#simplicity-nonce-hashing|Simplicity nonce hashing]] for the rationale.
+
+<span id="relay-policy"></span>
+===Relay policy===
+
+The discounted-CT fee rule (<code>policy/discount.h</code>) charges each confidential field as its explicit counterpart; for a nonce that is the 1-byte null nonce.
+An HKE nonce is charged the same way:
+
+<pre>if (output.nNonce.IsHKE())
+    // subtract the weight difference of HKE nonce (33 + L_c) vs no nonce (1)
+    // weighted as part of the base transaction
+    weight -= (32 + L_c) * WITNESS_SCALE_FACTOR;</pre>
+
+On networks that accept discounted CT (by default Liquid mainnet and testnet), the ciphertext therefore adds no discounted output size.
+Without this discount it adds 1088 vB.
+
+The discount does not change size limits: <code>MAX_STANDARD_TX_WEIGHT</code> remains 400,000 WU, measured before the discount, and <code>MAX_BLOCK_WEIGHT</code> remains 4,000,000 WU.
+Wallets MUST estimate fees and transaction weight from the final HKE outputs, including change, rather than from 33-byte classical nonces or 1217-byte placeholders.
+
+===Wallet===
+
+<span id="hke-confidential-address"></span>
+====HKE confidential address====
+
+An HKE confidential address carries the fields of today's confidential segwit address, <code>witver</code>, <code>program</code> and <code>B_bytes</code>, and adds the parameter set <code>hke_version</code> and the encapsulation key <code>ek</code>.
+For a given scriptPubKey, <code>witver</code> and <code>program</code> are the same as in its classical confidential address, while <code>B_bytes</code> and <code>ek</code> are derived from <code>msk</code> ([[#key-derivation|Key derivation]]), so <code>B_bytes</code> differs from the classical blinding key.
+The address uses new HRPs and a CRC-32 checksum ([[#address-encoding|Address encoding]] explains why).
+
+The address <code>payload</code> is the concatenation
+
+<pre>hke_version || witver || B_bytes || ek || program</pre>
+
+of the following fields:
+
+{| class="wikitable"
+|-
+! Field
+! style="text-align: right;"| Size
+! Meaning
+|-
+| <code>hke_version</code>
+| style="text-align: right;"| 1 B
+| parameter set (<code>0x01</code> = HKE v1 / <code>ML-KEM-768</code>); determines <code>L_ek</code> and the <code>nNonce</code> prefixes of the HKE nonce and the placeholder
+|-
+| <code>witver</code>
+| style="text-align: right;"| 1 B
+| witness version of the recipient's scriptPubKey, 0 to 16
+|-
+| <code>B_bytes</code>
+| style="text-align: right;"| 33 B
+| compressed <code>secp256k1</code> blinding public key <code>cbytes(B)</code>
+|-
+| <code>ek</code>
+| style="text-align: right;"| <code>L_ek</code> B
+| recipient's ML-KEM-768 public encapsulation key
+|-
+| <code>program</code>
+| style="text-align: right;"| 2–40 B
+| witness program of the recipient's scriptPubKey
+|}
+
+The sender rebuilds the recipient's scriptPubKey as <code>OP_witver <program></code>: <code>OP_0</code> for version 0 or <code>OP_1</code> to <code>OP_16</code> for versions 1 to 16, followed by a direct push of <code>program</code>.
+
+The HKE confidential address is the string
+
+<pre>hrp || "1" || base32(payload || CRC32(hrp || payload))</pre>
+
+where
+
+* <code>hrp</code> is <code>lq2</code> (mainnet), <code>tlq2</code> (testnet) or <code>el2</code> (regtest); these assignments need confirmation by Elements maintainers before deployment.
+* <code>base32</code> maps each 5-bit group of its input, most significant bit first, to one character of the bech32 alphabet <code>qpzry9x8gf2tvdw0s3jn54khce6mua7l</code> ([https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173]); the final group is zero-padded.
+* <code>CRC32</code> is CRC-32/ISO-HDLC (as computed by zlib's <code>crc32</code>) over the lowercase ASCII <code>hrp</code> followed by <code>payload</code>, appended as 4 bytes in big-endian order.
+
+The string MUST be either all lowercase or all uppercase; the canonical form is lowercase.
+
+A decoder MUST reject the address if any of the following checks fails.
+They are listed in the order a decoder naturally applies them:
+
+# The string is all lowercase or all uppercase; the decoder then converts it to lowercase.
+# The string contains a <code>1</code>; the decoder splits it at the last <code>1</code> into <code>hrp</code> and the data part, and <code>hrp</code> is the HRP of the decoder's network.
+# Every character of the data part is in the bech32 alphabet, and the padding bits of the final group are zero and fewer than five, so that each address has exactly one valid encoding.
+# The decoded bytes end in 4 checksum bytes equal to <code>CRC32(hrp || payload)</code>, where <code>payload</code> is the bytes before them.
+# <code>hke_version</code> is known, and <code>payload</code> is long enough to contain <code>witver</code>, <code>B_bytes</code> and <code>ek</code>.
+# The witness program is valid under [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]: <code>witver</code> is at most 16, <code>program</code> is 2 to 40 bytes long, and if <code>witver</code> is 0, <code>program</code> is 20 or 32 bytes long.
+# <code>lift(B_bytes)</code> succeeds and <code>KEM.CheckEK(ek)</code> is true ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222]).
+
+Only native segwit scriptPubKeys have an HKE confidential address.
+P2PKH, P2SH and P2SH-wrapped segwit destinations are not supported by this address format.
+
+<span id="key-derivation"></span>
+====Key derivation====
+
+A Liquid wallet derives the classical blinding key of each scriptPubKey from its 32-byte master blinding key <code>mbk</code> ([https://github.com/satoshilabs/slips/blob/master/slip-0077.md SLIP-77]):
+
+<pre>blinding_private_key := HMAC-SHA256(mbk, scriptPubKey)</pre>
+
+Elements Core applies the same rule to a randomly generated <code>mbk</code>.
+The HKE secret of a scriptPubKey MUST be derived from the same <code>mbk</code>:
+
+<pre>msk := HMAC-SHA256(H_mbk(mbk), scriptPubKey)</pre>
+
+where <code>H_mbk</code> is the tagged hash with tag <code>ELIP-HKE/v1/mbk</code>, and <code>scriptPubKey</code> is the raw script <code>OP_witver <program></code> without a length prefix, as in SLIP-77 (for example <code>0x00 0x14 || program</code> for P2WPKH and <code>0x51 0x20 || program</code> for P2TR).
+The HKE confidential address of that scriptPubKey carries <code>cbytes(B)</code> and <code>ek</code>, using the <code>B</code> and <code>ek</code> that <code>expandDecapsulationKey(msk)</code> returns.
+
+A backup of <code>mbk</code> therefore restores both the classical and the HKE blinding keys.
+The separate HMAC key <code>H_mbk(mbk)</code> keeps <code>msk</code> independent of the SLIP-77 blinding key, which a CRQC can recover from any classical confidential address of the scriptPubKey ([[#separate-key-derivation|Separate key derivation]]).
+
+This extends SLIP-77 rather than replacing it: the same scriptPubKey can have a classical confidential address, with the SLIP-77 key, and an HKE confidential address, with the keys derived from <code>msk</code>.
+The <code>nNonce</code> prefix of an output tells the recipient which of the two applies.
+
+A CT descriptor <code>ct(slip77(<mbk>), <DESCRIPTOR>)</code> ([https://github.com/ElementsProject/ELIPs/blob/main/elip-0150.mediawiki ELIP 150]) therefore also determines the HKE keys of its native segwit scriptPubKeys, so a wallet holding it can recover HKE outputs without a new descriptor.
+The classical public key alone does not determine <code>ek</code>: a wallet using bare blinding keys, imported per-script blinding keys or [https://github.com/ElementsProject/ELIPs/blob/main/elip-0151.mediawiki ELIP 151] MUST provision an independent secret <code>mbk</code> for the derivation above before creating HKE confidential addresses.
+
+<span id="key-establishment"></span>
+====Key establishment====
+
+For an HKE output, the range-proof seed <code>K</code> comes from HKE instead of ECDH: the sender calls <code>HKE.Encaps</code> and the recipient calls <code>HKE.Decaps</code>.
+The range-proof functions are unchanged, since they already take a 32-byte seed.
+
+'''Sender.'''
+
+* When paying an HKE confidential address, the sender MUST call <code>HKE.Encaps(B_bytes, ek)</code>, use the resulting <code>K</code> as the seed of the output's range proof, and set the output's <code>nNonce</code> to the [[#hke-nonce-encoding|HKE nonce encoding]] of <code>(E_bytes, c)</code>.
+* When paying a classical confidential address, the sender MUST use a classical nonce, as today. [[#security-and-privacy|Security and privacy]] describes the privacy limits of mixing classical and HKE outputs.
+* Once HKE is active, a wallet with HKE keys SHOULD send change and all other outputs to itself to its own HKE confidential addresses, so that classical outputs remain only for recipients without an HKE confidential address.
+
+'''Recipient.'''
+
+* For an output with an HKE nonce, the recipient extracts <code>(E_bytes, c)</code>, derives <code>msk</code> for the output's scriptPubKey ([[#key-derivation|Key derivation]]), computes <code>K := HKE.Decaps((E_bytes, c), msk)</code>, and rewinds the range proof with seed <code>K</code>.
+* If <code>E_bytes</code> is not a valid point or the rewind fails, the recipient MUST mark the output as unrecovered and continue scanning, without falling back to classical seed derivation. <code>HKE.Decaps</code> does not detect a ciphertext made for another key: it returns an unrelated <code>K</code>, so the failed rewind is the only signal that the ciphertext is not addressed to the recipient ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222, Decapsulation]).
+* Local failures, such as key-derivation or backend errors, remain wallet errors, not unrecovered outputs.
+* For an output with a classical nonce, the recipient uses the classical seed derivation.
+
+====Unblinded transactions and PSET====
+
+A transaction can be created unblinded and blinded later, possibly by another program.
+Elements then passes the recipient's blinding public key to the blinder in the <code>nNonce</code> of the unblinded output.
+
+For an HKE confidential address the blinder needs both <code>B_bytes</code> and <code>ek</code>, so transaction constructors MUST store the [[#hke-nonce-encoding|HKE placeholder]], which carries both.
+The blinder MUST replace the placeholder with the HKE ciphertext and create the range proof with the resulting seed <code>K</code>.
+If it cannot complete blinding, it MUST fail rather than discard the HKE request, including when <code>ignoreblindfail</code> is set.
+Otherwise the payment would silently become a classical or explicit output, without the post-quantum protection the recipient asked for.
+
+[https://github.com/ElementsProject/elements/blob/7110a84bb1/doc/pset.mediawiki PSET] needs new output fields for <code>ek</code> and <code>c</code>, alongside the existing blinding public key <code>B_bytes</code> and ephemeral public key <code>E_bytes</code>.
+Like the nonce prefixes, these fields are specific to HKE v1 / <code>ML-KEM-768</code>; another KEM would need new fields.
+The field identifiers, the PSET version and the compatibility rules are left to a separate PSET extension.
+The extension must enforce the following behavior:
+
+* The creator records the recipient's complete public key. The blinder validates it and records the complete ciphertext.
+* Merging rejects copies that disagree on whether the output is an HKE output, or on its key or ciphertext.
+* An HKE output is fully blinded only when its commitments, proofs and complete ciphertext are all present in the required encodings.
+* Signing and extraction preserve the same full nonce. A signer, finalizer or extractor MUST refuse an HKE output that is not fully blinded, and MUST NOT turn it into a classical, explicit or null-nonce output.
+* An implementation that does not support the HKE fields must not blind, sign or finalize that output. The extension must define how older implementations are prevented from silently dropping these fields.
+
+A PSET with an HKE output requires a new PSET version.
+Older software ignores unknown fields and would blind the output classically, but it rejects a PSET with an unknown version.
+
+<span id="activation"></span>
+===Activation===
+
+This draft proposes a fixed activation height <code>H</code>, to be assigned per network.
+All consensus changes take effect together at that height.
+
+Deserialization has no access to the block height, so an upgraded node parses HKE nonces and placeholders unconditionally and enforces activation in contextual validation:
+
+* A block at a height below <code>H</code> MUST be rejected if any of its transactions contains an HKE nonce.
+* A node MUST NOT accept such a transaction to its mempool unless the next block's height is at least <code>H</code>, and MUST remove it from the mempool after a reorganization below <code>H</code>.
+
+The other rules of this document need no height condition: for a transaction without an HKE nonce, they give the same result as today's rules.
+
+Block signers, functionaries and validating nodes MUST upgrade before <code>H</code> to follow blocks containing HKE outputs.
+Wallets, signing devices, explorers and other transaction parsers also need the new encoding; wallets that recover HKE outputs additionally need HKE.
+Before the next block can be at height <code>H</code>, wallets SHOULD NOT create HKE outputs: such a transaction cannot enter the mempool, yet a wallet that creates it may keep it and treat its inputs as spent.
+Wallets MAY hand out HKE confidential addresses earlier.
+
+<span id="implementation-requirements"></span>
+===Implementation requirements===
+
+* '''Memory accounting.''' Transaction and mempool accounting MUST include the allocation owned by <code>nNonce</code>; <code>RecursiveDynamicUsage(CTxOut)</code> currently counts only the script. Coin-cache accounting MUST also include any retained nonce allocation. A node SHOULD clear nonces from connected-block coins, provided it preserves the original transaction and mempool coin-view invariants ([https://github.com/ElementsProject/elements/issues/1004 Elements #1004], [https://github.com/ElementsProject/elements/pull/1008 #1008]). Under the [[#relay-policy|fee discount]] an HKE nonce adds 1088 bytes to each cached coin at no extra fee, and consensus cannot depend on a spent coin's nonce, since <code>TxOutCompression</code> already omits it from disk.
+
+<span id="security-and-privacy"></span>
+==Security and privacy==
+
+HKE protects the range-proof seed of an HKE output under the assumptions of [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222].
+It does not protect commitment binding or spending signatures, and it cannot restore the privacy of classical outputs whose blinding public key has been exposed through an address.
+Consensus also does not prove that a recipient can recover an output: a valid range proof can accompany unusable encapsulation data.
+
+Protecting the seed does not prevent amounts from being inferred from transaction balance.
+If an observer knows every amount of an asset except one, the unknown amount follows from inputs, outputs, issuance and fees.
+For example, sweeping recoverable classical inputs into one HKE output reveals its amount; that knowledge can propagate when it is spent.
+The asset can also be inferred when all possible inputs carry the same asset.
+
+A wallet moving funds from classical outputs to HKE outputs SHOULD NOT create a transaction in which exactly one amount of an asset is unknown to the observer.
+Sending the funds to two HKE outputs of that asset avoids this: the observer learns only their sum.
+
+HKE outputs are identifiable by their nonce prefixes and lengths.
+When wallets use HKE for every output they control ([[#key-establishment|Key establishment]]), only payments to classical addresses mix classical and HKE outputs.
+There the change is the only HKE output, so the output types reveal it; this cost disappears as recipients upgrade.
+
+==Rationale==
+
+===Why the nonce field===
+
+<code>nNonce</code> already holds the classical half of the key exchange, <code>E_bytes</code>; extending it with <code>c</code> keeps the HKE ciphertext together.
+The prefix identifies the ciphertext, and existing non-Simplicity signature rules commit to the complete nonce whenever they commit to that output.
+Simplicity needs the corresponding [[#simplicity|hashing change]].
+The extension does not enlarge the coins database: <code>TxOutCompression</code> stores only <code>nValue</code>, <code>nAsset</code> and <code>scriptPubKey</code>.
+The prefixes <code>0x04</code>, <code>0x06</code> and <code>0x07</code> are also the tags of 65-byte uncompressed and hybrid public keys; this causes no ambiguity, because <code>nNonce</code> has never accepted those encodings and each new prefix fixes a field length of 1121 or 1217 bytes.
+
+The alternatives trade a smaller wire change or lower block weight for additional transport rules:
+
+{| class="wikitable"
+|-
+! Location
+! Deployment
+! Main trade-off
+|-
+| '''<code>CTxOut.nNonce</code>'''
+| '''Hard fork'''
+| Base-data weight; existing output signature coverage; no coins-database growth.
+|-
+| Taproot input annex ([https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341])
+| Relay policy and wallet rules
+| Witness weight; requires a Taproot input and rules mapping ciphertexts to outputs and ensuring signatures cover the carrier.
+|-
+| Unused issuance-proof slot
+| Relay policy and wallet rules
+| Witness weight; repurposes an input proof field and needs output mapping and signature coverage, including <code>SIGHASH_RANGEPROOF</code> for segwit v0.
+|-
+| <code>OP_RETURN</code> output
+| Relay policy and wallet rules
+| Base-data weight plus a carrier output; needs a higher datacarrier limit and output mapping.
+|-
+| New <code>CTxOutWitness</code> field
+| Hard fork
+| Witness weight; needs new serialization and signature-hash rules, including Simplicity.
+|}
+
+The new nonce prefixes and a new output-witness field require a hard fork because old parsers reject them.
+A soft fork cannot make those rejected encodings valid.
+The existing-field alternatives avoid that parsing change, but need rules for locating each ciphertext and preventing its removal or replacement.
+The nonce extension uses more block space than witness placements in exchange for carrying the ciphertext directly in the output that signatures already commit to.
+
+<span id="cost-of-the-hke-nonce"></span>
+===Cost of the HKE nonce===
+
+The ciphertext adds 1088 base-data bytes per output, or 4352 WU.
+Charging those bytes in full and extending the existing nonce discount give these costs:
+
+{| class="wikitable"
+|-
+! Model
+! Relay policy
+! style="text-align: right;"| Block weight per output
+! style="text-align: right;"| Outputs per block, at most
+! style="text-align: right;"| Fee-relevant output size
+|-
+| Classical output (today)
+| nonce discounted to 1 B
+| style="text-align: right;"| 4733 WU
+| style="text-align: right;"| 845
+| style="text-align: right;"| ~66.5 vB
+|-
+| HKE, charge <code>c</code> in full
+| classical portion discounted; <code>c</code> at base-data rate
+| style="text-align: right;"| 9085 WU
+| style="text-align: right;"| 440
+| style="text-align: right;"| ~1154.5 vB
+|-
+| '''HKE, proposed discount'''
+| '''nonce discounted to 1 B'''
+| style="text-align: right;"| '''9085 WU'''
+| style="text-align: right;"| '''440'''
+| style="text-align: right;"| '''~66.5 vB'''
+|}
+
+Figures assume a P2WPKH output with Elements' default 52-bit range proof (4174 B) and a single-input surjection proof (67 B), and ignore transaction overhead.
+
+The proposed discount preserves the fee treatment of classical confidential outputs, while a block holds about half as many HKE outputs.
+Discounted CT already separates fees from block space for range and surjection proofs; the unchanged block and standard-transaction limits still bound physical size.
+
+The discount on the nonce applies to every output, including one with an explicit value, which has no range proof to seed.
+Today this lets an explicit output carry the 32 bytes of a classical nonce at no fee; an HKE nonce would raise this to 1120 bytes.
+This document therefore rejects an HKE nonce on an output with an explicit value ([[#output-validity|Output validity]]), so that every HKE nonce belongs to a confidetial output.
+
+<span id="address-encoding"></span>
+===Address encoding===
+
+Today's confidential addresses use <code>blech32</code> (witness version 0), <code>blech32m</code> (version 1 and above), or Base58Check for P2PKH and P2SH; none defines a field for the ~1.2 KB encapsulation key.
+A new address type with its own HRPs makes parsers that have not upgraded reject HKE confidential addresses.
+The payload keeps the fields of today's confidential segwit address, <code>witver</code>, <code>B_bytes</code> and <code>program</code>, and adds <code>hke_version</code> and <code>ek</code>.
+
+P2PKH and P2SH, which have Base58 confidential addresses today, are deliberately not supported.
+A wallet that adopts HKE confidential addresses needs new code anyway and can move its users to a native segwit script at the same time.
+Witness versions 1 to 16 accept any program length allowed by BIP141 (2 to 40 bytes), leaving room for future witness programs without another address format.
+
+The address uses the bech32 alphabet but is not <code>bech32</code>, <code>bech32m</code> or <code>blech32m</code>: it replaces their BCH checksum with CRC-32.
+The guarantees of <code>blech32</code>'s checksum do not extend to this length: its generator has period 1023, so some pairs of character errors 1023 positions apart go undetected.
+CRC-32 provides a 32-bit check for accidental corruption, with an undetected-error probability of 2<sup>-32</sup> for uniformly random checksum differences.
+Its usual 32-bit burst guarantee does not apply to this serialization: reflected CRC computation, big-endian checksum bytes and MSB-first base32 permit shorter undetected bursts across the payload/checksum boundary.
+The reference tests include such a collision; the checksum does not protect against deliberate address substitution.
+
+For <code>ML-KEM-768</code>, the payload is 1239 bytes and the mainnet or regtest address 1993 characters for P2WPKH, and 1251 bytes and 2012 characters for P2WSH or P2TR; testnet adds one character.
+The bech32 alphabet in uppercase fits QR alphanumeric mode, in which each of these addresses needs a version-27 QR code at error-correction level L.
+HKE confidential addresses are meant to be scanned or copied, not typed.
+The size of <code>ek</code> dominates the address length, which is why it is the main criterion for KEM selection ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222, Rationale]).
+
+<span id="separate-key-derivation"></span>
+===Separate key derivation===
+
+<code>msk</code> is derived under an HMAC key other than <code>mbk</code>, so it is independent of the classical blinding key of the same scriptPubKey.
+This matters because a classical blinding key gives no protection against a CRQC: its public key appears in every classical confidential address of the scriptPubKey, and a CRQC recovers the private key from it.
+If <code>msk</code> were equal to that private key, the CRQC would also learn <code>dk</code> and could decapsulate every HKE output to the address.
+Deriving <code>msk</code> from <code>mbk</code> rather than from a new secret requires no backup beyond <code>mbk</code>, and lets existing watch-only setups that hold <code>mbk</code> follow HKE outputs.
+
+<span id="simplicity-nonce-hashing"></span>
+===Simplicity nonce hashing===
+
+<code>c</code> enters Simplicity's hashes as <code>SHA256(c)</code> rather than in full, following the convention Simplicity already uses for variable-length output data: the scriptPubKey, the range proof and the surjection proof also enter as their SHA-256.
+Each nonce's contribution to these hashes stays self-delimiting by its prefix: 1 byte for <code>0x00</code>, 33 bytes for <code>0x01</code> to <code>0x03</code>, and 65 bytes for <code>0x04</code> and <code>0x05</code>.
+The 65-byte hash input is distinct from the 1121-byte transaction encoding, which carries the full ciphertext.
+
+Classical nonce hashing remains unchanged; compatibility of existing program commitments must be established by the amended Simplicity specification.
+A program that rebuilds an output's hash from <code>output_nonce</code> and <code>nonce_hash</code> obtains the classical encoding for an HKE output, so its comparison fails rather than accepting a modified <code>c</code>.
+
+==Backwards Compatibility==
+
+Nodes that have not upgraded cannot deserialize an HKE nonce and reject any transaction or block that contains one; see [[#activation|Activation]].
+
+After activation:
+
+* '''Classical and HKE outputs coexist.''' An output with a classical nonce is recognized by its prefix, and wallets recover it with the classical seed derivation. HKE cannot protect such outputs retroactively.
+* '''Nonce introspection keeps its 33-byte result''', within <code>MAX_SCRIPT_ELEMENT_SIZE</code> (520 bytes). Covenants that rebuild an output from it must account for the [[#script-introspection|introspection limits]].
+* '''The UTXO set format is unchanged''', because the nonce is not stored in it.
+* '''The address type is new and opt-in.''' A wallet that has not upgraded cannot parse or pay an HKE confidential address; existing addresses remain usable.
+
+'''Migration.'''
+Moving funds to HKE outputs protects their seeds, but transaction balance can still reveal their amounts.
+Wallets must account for the [[#security-and-privacy|migration limits]], including the single-unknown-amount case.
+This proposal does not depend on a future post-quantum signature upgrade.
+
+==Test Vectors and Reference Code==
+
+[[elip-hke-confidential-transactions/|<code>elip-hke-confidential-transactions/</code>]] implements key derivation, address encoding and decoding, HKE nonce and placeholder encoding, and sender/recipient seed agreement using the [https://github.com/ElementsProject/ELIPs/pull/46 HKE reference implementation].
+[[elip-hke-confidential-transactions/vectors.json|<code>vectors.json</code>]] gives deterministic inputs and expected keys, addresses, ciphertexts, nonces, placeholders and Simplicity nonce hash inputs.
+It also lists invalid addresses, one per decoder rejection rule, and an address demonstrating the CRC boundary collision.
+The tests also cover malformed encodings, canonical address padding and recipient handling of unusable ciphertexts.
+This is reference code, not an Elements consensus, range-proof or Simplicity implementation.
+
+==Acknowledgements==
+
+We thank Oleksandr Kurbatov and Jonas Nick for their helpful review and comments.
+We admit the usage of Anthropic's Claude AI models that assisted with editing, review and reference code.
+All AI generated content and feedback has been carefully verified by authors.

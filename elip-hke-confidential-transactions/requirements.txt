@@ -1,0 +1,3 @@
+-e git+https://github.com/juja256/ELIPs.git@main#egg=elip-hke&subdirectory=elip-0222
+qrcode[pil]>=8.0.0
+pytest>=8
