@@ -22,7 +22,7 @@ The Confidential Assets extension of Confidential Transactions (CT) on Liquid hi
 However, the legitimate recipient of the output still learns this information through some form of encryption protocol: the sender performs an Elliptic Curve Diffie-Hellman key exchange (ECDH) between its ephemeral key and the recipient's blinding key, the shared secret is then used to derive the output's range proof seed, which in turn piggybacks the encrypted amount and asset.
 An attacker with a cryptographically relevant quantum computer (CRQC) can solve the discrete logarithm problem and thus break ECDH with Shor's algorithm.
 Given both public keys, they can retroactively recover the amount and asset of confidential outputs recorded today, threatening users' privacy.
-New proposal of [[elip-0222.mediawiki|Hybrid Key Encapsulation]] (HKE) replaces this ECDH with a key encapsulation that combines it with the post-quantum KEM <code>ML-KEM-768</code>.
+New proposal of [https://github.com/ElementsProject/ELIPs/pull/46 Hybrid Key Encapsulation] (HKE) replaces this ECDH with a key encapsulation that combines it with the post-quantum KEM <code>ML-KEM-768</code>.
 This document specifies an application of the proposed HKE for safeguarding the privacy of outputs on Liquid: new HKE outputs, the corresponding consensus rules, changes of transaction structure, and new confidential address format.
 
 ===Copyright===
@@ -36,7 +36,7 @@ The recipient recomputes the seed from <code>E</code> and its blinding private k
 
 An adversary with a cryptographically relevant quantum computer (CRQC) can therefore compute the seed of any output with an exposed blinding key <code>B</code>, including outputs recorded long before the CRQC existed (''harvest-now-decrypt-later'' attack).
 
-The [[elip-0222.mediawiki|HKE]] protocol protects the range-proof seed against this attack by replacing the classical key exchange with a hybrid quantum-resistant key encapsulation.
+The [https://github.com/ElementsProject/ELIPs/pull/46 HKE] protocol protects the range-proof seed against this attack by replacing the classical key exchange with a hybrid quantum-resistant key encapsulation.
 This document specifies HKE deployment on Liquid.
 Specifically, it introduces new ''HKE outputs'' and ''HKE confidential addresses'' along with new consensus rules and wallet requirements accompanying them.
 We note that this proposal protects only the ''confidentiality'' of outputs against quantum attackers.
@@ -106,7 +106,7 @@ This document makes the following changes, by layer:
 | Wallet
 | [[#key-establishment|Key establishment]]
 | sender: <code>E := e*G, K := ECDH(e, B)</code>, recipient: <code>K := ECDH(b, E)</code>
-| sender: <code>(K, (E_bytes, c)) := HKE.Encaps(B_bytes, ek)</code>, recipient: <code>K := HKE.Decaps((E_bytes, c), msk)</code> ([[elip-0222.mediawiki|HKE]])
+| sender: <code>(K, (E_bytes, c)) := HKE.Encaps(B_bytes, ek)</code>, recipient: <code>K := HKE.Decaps((E_bytes, c), msk)</code> ([https://github.com/ElementsProject/ELIPs/pull/46 HKE])
 |-
 | Implementation
 | [[#implementation-requirements|Implementation requirements]]
@@ -118,7 +118,7 @@ This document makes the following changes, by layer:
 
 ===Notation===
 
-* <code>HKE.Encaps</code>, <code>HKE.Decaps</code>, <code>expandDecapsulationKey</code>, <code>msk</code>, <code>cbytes</code>, <code>lift</code>, <code>KEM.CheckEK</code>, <code>L_c</code>, <code>L_ek</code> and the tagged hashes <code>H_t</code> and <code>H_seed</code> are as defined in [[elip-0222.mediawiki|<code>elip-0222.mediawiki</code>]]. For <code>ML-KEM-768</code>, <code>L_c = 1088</code> and <code>L_ek = 1184</code>.
+* <code>HKE.Encaps</code>, <code>HKE.Decaps</code>, <code>expandDecapsulationKey</code>, <code>msk</code>, <code>cbytes</code>, <code>lift</code>, <code>KEM.CheckEK</code>, <code>L_c</code>, <code>L_ek</code> and the tagged hashes <code>H_t</code> and <code>H_seed</code> are as defined in [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222]. For <code>ML-KEM-768</code>, <code>L_c = 1088</code> and <code>L_ek = 1184</code>.
 * <code>B</code> is the recipient's blinding public point and <code>E</code> is the sender's ephemeral public point on <code>secp256k1</code>. <code>B_bytes = cbytes(B)</code> and <code>E_bytes = cbytes(E)</code> are their 33-byte compressed encodings.
 * A ''classical nonce'' is an <code>nNonce</code> value with prefix <code>0x02</code> or <code>0x03</code> (33 bytes). An ''HKE nonce'' is an <code>nNonce</code> value with prefix <code>0x04</code> or <code>0x05</code> (1121 bytes). An ''HKE output'' is an output with an HKE nonce. An ''HKE placeholder'' is an <code>nNonce</code> value with prefix <code>0x06</code> or <code>0x07</code> (1217 bytes); it appears only in unblinded transactions.
 * An ''HKE confidential address'' is the address type defined in [[#hke-confidential-address|HKE confidential address]]. Only its blinding keys are HKE keys; the scriptPubKey it pays to, and the signatures that spend from it, are unchanged.
@@ -193,11 +193,11 @@ The nonce parser and predicates change as follows:
 
 These predicates check the prefix and length only.
 Consensus does not check that the encoded point is on the curve or that the ciphertext lets the intended recipient recover the range-proof seed, just as it does not check recoverability for classical outputs.
-Wallets perform the point and KEM checks required by [[elip-0222.mediawiki|<code>elip-0222.mediawiki</code>]] when encapsulating or decapsulating.
+Wallets perform the point and KEM checks required by [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222] when encapsulating or decapsulating.
 
 The weight rules are unchanged: an HKE nonce is base data and weighs <code>1121 * 4 = 4484</code> WU, which is 4352 WU (1088 vB) more than a classical nonce.
 
-The prefixes <code>0x04</code> to <code>0x07</code> are specific to <code>ML-KEM-768</code>: they fix <code>L_c</code>, <code>L_ek</code> and the <code>H_seed</code> tag of [[elip-0222.mediawiki|<code>elip-0222.mediawiki</code>]].
+The prefixes <code>0x04</code> to <code>0x07</code> are specific to <code>ML-KEM-768</code>: they fix <code>L_c</code>, <code>L_ek</code> and the <code>H_seed</code> tag of [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222].
 Using another KEM would require new prefixes, and thus another hard fork, since nodes reject unknown prefixes.
 
 <span id="output-validity"></span>
@@ -319,7 +319,7 @@ They are listed in the order a decoder naturally applies them:
 # The decoded bytes end in 4 checksum bytes equal to <code>CRC32(hrp || payload)</code>, where <code>payload</code> is the bytes before them.
 # <code>hke_version</code> is known, and <code>payload</code> is long enough to contain <code>witver</code>, <code>B_bytes</code> and <code>ek</code>.
 # The witness program is valid under [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]: <code>witver</code> is at most 16, <code>program</code> is 2 to 40 bytes long, and if <code>witver</code> is 0, <code>program</code> is 20 or 32 bytes long.
-# <code>lift(B_bytes)</code> succeeds and <code>KEM.CheckEK(ek)</code> is true ([[elip-0222.mediawiki|<code>elip-0222.mediawiki</code>]]).
+# <code>lift(B_bytes)</code> succeeds and <code>KEM.CheckEK(ek)</code> is true ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222]).
 
 Only native segwit scriptPubKeys have an HKE confidential address.
 P2PKH, P2SH and P2SH-wrapped segwit destinations are not supported by this address format.
@@ -363,7 +363,7 @@ The range-proof functions are unchanged, since they already take a 32-byte seed.
 '''Recipient.'''
 
 * For an output with an HKE nonce, the recipient extracts <code>(E_bytes, c)</code>, derives <code>msk</code> for the output's scriptPubKey ([[#key-derivation|Key derivation]]), computes <code>K := HKE.Decaps((E_bytes, c), msk)</code>, and rewinds the range proof with seed <code>K</code>.
-* If <code>E_bytes</code> is not a valid point or the rewind fails, the recipient MUST mark the output as unrecovered and continue scanning, without falling back to classical seed derivation. <code>HKE.Decaps</code> does not detect a ciphertext made for another key: it returns an unrelated <code>K</code>, so the failed rewind is the only signal that the ciphertext is not addressed to the recipient ([[elip-0222.mediawiki#decapsulation|<code>elip-0222.mediawiki</code>, Decapsulation]]).
+* If <code>E_bytes</code> is not a valid point or the rewind fails, the recipient MUST mark the output as unrecovered and continue scanning, without falling back to classical seed derivation. <code>HKE.Decaps</code> does not detect a ciphertext made for another key: it returns an unrelated <code>K</code>, so the failed rewind is the only signal that the ciphertext is not addressed to the recipient ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222, Decapsulation]).
 * Local failures, such as key-derivation or backend errors, remain wallet errors, not unrecovered outputs.
 * For an output with a classical nonce, the recipient uses the classical seed derivation.
 
@@ -417,7 +417,7 @@ Wallets MAY hand out HKE confidential addresses earlier.
 <span id="security-and-privacy"></span>
 ==Security and privacy==
 
-HKE protects the range-proof seed of an HKE output under the assumptions of [[elip-0222.mediawiki#security|<code>elip-0222.mediawiki</code>]].
+HKE protects the range-proof seed of an HKE output under the assumptions of [https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222].
 It does not protect commitment binding or spending signatures, and it cannot restore the privacy of classical outputs whose blinding public key has been exposed through an address.
 Consensus also does not prove that a recipient can recover an output: a valid range proof can accompany unusable encapsulation data.
 
@@ -539,7 +539,7 @@ The reference tests include such a collision; the checksum does not protect agai
 For <code>ML-KEM-768</code>, the payload is 1239 bytes and the mainnet or regtest address 1993 characters for P2WPKH, and 1251 bytes and 2012 characters for P2WSH or P2TR; testnet adds one character.
 The bech32 alphabet in uppercase fits QR alphanumeric mode, in which each of these addresses needs a version-27 QR code at error-correction level L.
 HKE confidential addresses are meant to be scanned or copied, not typed.
-The size of <code>ek</code> dominates the address length, which is why it is the main criterion for KEM selection ([[elip-0222.mediawiki#rationale|<code>elip-0222.mediawiki</code>, Rationale]]).
+The size of <code>ek</code> dominates the address length, which is why it is the main criterion for KEM selection ([https://github.com/ElementsProject/ELIPs/pull/46 ELIP 222, Rationale]).
 
 <span id="separate-key-derivation"></span>
 ===Separate key derivation===
@@ -577,7 +577,7 @@ This proposal does not depend on a future post-quantum signature upgrade.
 
 ==Test Vectors and Reference Code==
 
-[[elip-hke-confidential-transactions/|<code>elip-hke-confidential-transactions/</code>]] implements key derivation, address encoding and decoding, HKE nonce and placeholder encoding, and sender/recipient seed agreement using the [[elip-0222/|HKE reference implementation]].
+[[elip-hke-confidential-transactions/|<code>elip-hke-confidential-transactions/</code>]] implements key derivation, address encoding and decoding, HKE nonce and placeholder encoding, and sender/recipient seed agreement using the [https://github.com/ElementsProject/ELIPs/pull/46 HKE reference implementation].
 [[elip-hke-confidential-transactions/vectors.json|<code>vectors.json</code>]] gives deterministic inputs and expected keys, addresses, ciphertexts, nonces, placeholders and Simplicity nonce hash inputs.
 It also lists invalid addresses, one per decoder rejection rule, and an address demonstrating the CRC boundary collision.
 The tests also cover malformed encodings, canonical address padding and recipient handling of unusable ciphertexts.
