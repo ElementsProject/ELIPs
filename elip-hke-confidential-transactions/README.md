@@ -1,7 +1,7 @@
 # ELIP Hybrid Key Exchange for Confidential Transactions: Liquid integration demo
 
 Reference code for `../elip-hke-confidential-transactions.mediawiki`: key derivation, HKE confidential addresses, nonce and placeholder encoding, and sender/recipient seed agreement.
-The demo imports the HKE reference implementation in `../elip-0222/hke.py`.
+The demo imports the HKE reference implementation in `hke.py` of ELIP 222 (https://github.com/ElementsProject/ELIPs/pull/46).
 
 ## Run
 

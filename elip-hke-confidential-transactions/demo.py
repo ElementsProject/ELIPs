@@ -2,7 +2,7 @@
 address, sender encapsulates to it, recipient recovers the same seed, and the
 address round-trips through its string encoding and a QR code.
 
-The HKE itself is the reference implementation in `../elip-0222/hke.py`
+The HKE itself is the reference implementation in `hke.py` of ELIP 222 (https://github.com/ElementsProject/ELIPs/pull/46)
 (`elip-0222.mediawiki`); this demo adds the Liquid-side address and nonce encodings
 (`elip-hke-confidential-transactions.mediawiki`).
 
