@@ -1,7 +1,7 @@
 <pre>
   ELIP: ?
   Layer: Consensus (hard fork)
-  Title: HKE for Confidential Transactions
+  Title: Hybrid Key Exchange for Confidential Transactions
   Author: Yevhen Hrubiian <yhrubiian@blockstream.com>
           Mykyta Redko <mredko@blockstream.com>
           Viktoriia Balatska <vbalatska@blockstream.com>
