@@ -1,11 +1,11 @@
 <pre>
-  ELIP: ?
+  ELIP: 223
   Layer: Consensus (hard fork)
   Title: OP_SHRINCS and OP_SHRINCSADD
   Author: Dmytrii Kurbatov <dkurbatov@blockstream.com>
           Oleksandr Kurbatov <okurbatov@blockstream.com>
   Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-XXX
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0223
   Status: Draft
   Type: Standards Track
   Created: 2026-11-19
@@ -619,7 +619,7 @@ In block context, <code>m_signblock_witness_limit</code> also bounds the work: e
 
 The vectors test the witness encoding and the opcodes. Keys and signatures come from the SHRINCS reference implementation at the commit named in ''SHRINCS version'', and every signature verifies under the SHRINCS specification with context <code>"liquid_shrincs"</code>. Signing is deterministic.
 
-The file [[tests/test-vectors.json|test-vectors.json]] holds the keys and the three base vectors. For each vector it gives the signer, the context, the message and the witness, bottom to top and without the witness script. The message is what the signature checker supplies: a stand-in for the signature hash in transaction context, or the block hash in block context. It is given in the byte order that the opcode verifies.
+The file [[elip-0223/test-vectors.json|test-vectors.json]] holds the keys and the three base vectors. For each vector it gives the signer, the context, the message and the witness, bottom to top and without the witness script. The message is what the signature checker supplies: a stand-in for the signature hash in transaction context, or the block hash in block context. It is given in the byte order that the opcode verifies.
 
 {| class="wikitable"
 ! Vector !! Context !! Signer !! <code>q</code> !! Chunks !! Last chunk !! Script !! Result
